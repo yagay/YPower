@@ -1,0 +1,34 @@
+name: Bootstrap YPower source
+
+on:
+  push:
+    paths:
+      - 'bootstrap/project.tar.gz.b64'
+      - '.github/workflows/bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack project source
+        run: |
+          mkdir -p /tmp/ypower-src
+          base64 -d bootstrap/project.tar.gz.b64 > /tmp/ypower-project.tar.gz
+          tar -xzf /tmp/ypower-project.tar.gz -C /tmp/ypower-src
+          rsync -a --delete --exclude='.git' /tmp/ypower-src/ ./
+      - name: Commit source tree
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Initial YPower implementation"
+          git push
