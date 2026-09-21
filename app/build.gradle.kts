@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "com.yagay.ypower"
     compileSdk = 37
+    compileSdkMinor = 0
 
     defaultConfig {
         applicationId = "com.yagay.ypower"
