@@ -1,0 +1,2 @@
+-keep class com.yagay.ypower.hook.** { *; }
+-keep class com.yagay.ypower.root.** { *; }
