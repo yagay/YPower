@@ -31,7 +31,7 @@ public final class YPowerModule extends XposedModule {
         AppProfile profile = loadProfile(pkg);
         if (!profile.enabled) return;
 
-        log(Log.INFO, TAG, "enabled package=" + pkg + " process=" + param.getProcessName());
+        log(Log.INFO, TAG, "enabled package=" + pkg);
         if (profile.simulateSystemApp) installSystemIdentityHooks(pkg);
         if (profile.simulatePermissions) installPermissionStatusHook(profile);
         if (profile.traceJava || profile.traceEnvironment) installEnvironmentTraceHooks();
