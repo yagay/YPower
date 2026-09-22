@@ -36,27 +36,33 @@ YPower 是一个面向 Root / LSPosed 设备的 Android 应用增强与诊断工
 
 ### 应用诊断
 
-三个采集级别和三个展示级别互相独立：
+诊断中心现在是**运行时会话模式**，不再把“手机当前存在 Root/LSPosed/Bootloader 状态”等静态环境扫描直接当作目标 App 的诊断结果。
+
+流程：
+
+1. 开始诊断：YPower 临时打开本次需要的目标进程追踪 Hook，并在测量窗口开始前停止旧目标进程。
+2. 启动目标 App：正常操作并复现问题。
+3. 返回 YPower，点击“结束并分析”。
+4. YPower 先关闭测量窗口，再停止目标进程卸载临时 Hook，并恢复该 App 原来的 YPower 配置。
+
+报告只显示本次运行**实际触发过**的事件，例如：
+
+- 包/安装环境查询。
+- `/proc/self/maps`、TracerPid、mount、`/data/adb`、Root 路径等实际文件访问。
+- Bootloader/AVB、debuggable、secure 等实际系统属性查询。
+- `Runtime.exec` / `ProcessBuilder` 实际敏感命令。
+- 权限状态查询。
+- `System.exit` / `Runtime.halt` / `killProcess` 主动退出。
+- 本次会话内真实的 Java/Native Crash、ANR、低内存或 signal 退出。
+
+**没有实际发生的检测项不会显示“通过/未通过”，也不会出现在结果列表里。**
+
+三个采集级别和三个展示级别仍然互相独立：
 
 - 快速 / 标准 / 深度诊断。
 - 简要 / 详细 / 原始结果。
 - JSON 报告导出。
-- 自动归因：把环境检查、YPowerTrace 事件和异常退出时间关联起来，输出“高度相关 / 存在关联 / 数据不足”，避免把环境存在直接等同于崩溃原因。
-
-当前规则包含：
-
-- Root、Magisk、KernelSU、APatch、Root modules。
-- LSPosed/Xposed、Zygisk、Riru、Frida、注入 maps、可疑线程。
-- `/proc`、mount、mount namespace、RWX 内存、ELF/SO、FD、线程、meminfo。
-- SELinux、模块 sepolicy、`avc: denied`。
-- Bootloader / Verified Boot / vbmeta / build tags / debuggable / secure。
-- 模拟器、虚拟空间/双开、开发者选项、ADB。
-- Proxy、VPN/tunnel、Mock Location、Accessibility。
-- APK 签名、APK SHA-256、安装来源。
-- Runtime permission、AppOps、悬浮窗 AppOp。
-- Java crash、Native crash、ANR、SecurityException、JNI/linker/ABI、OOM/LMKD、WebView/Chromium、SQLite、TLS。
-- ActivityManager exit-info、logcat、进程树、`/proc/status`。
-- Play Integrity、Key Attestation、服务端风控明确标注为 UNKNOWN，除非目标应用自身暴露可关联证据。
+- 自动归因：按本次运行事件与真实退出时间的接近程度计算关联度，而不是看到设备存在 Root 就直接判定 Root 导致闪退。
 
 ## 设计边界
 
