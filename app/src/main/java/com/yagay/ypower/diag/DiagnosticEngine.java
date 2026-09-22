@@ -58,6 +58,7 @@ public final class DiagnosticEngine {
         if (level == DiagnosticLevel.DEEP) collectTargetLogcat(report);
 
         CorrelationEngine.analyze(report);
+        FixRecommendationEngine.apply(report);
         return report;
     }
 
