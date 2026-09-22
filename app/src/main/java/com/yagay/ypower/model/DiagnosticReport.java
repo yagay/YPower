@@ -72,7 +72,30 @@ public class DiagnosticReport {
             if (f.correlationScore > 0) b.append("退出关联：").append(f.correlationScore).append("/100\n");
             if (f.detail != null && !f.detail.equals(f.summary)) b.append("详情：").append(f.detail).append('\n');
             for (String e : f.evidence) b.append("证据：").append(e).append('\n');
+            for (FixRecommendation recommendation : f.recommendations) {
+                b.append("建议：").append(recommendation.title).append('\n');
+                b.append("  ").append(recommendation.detail).append('\n');
+                b.append("  参考：").append(recommendation.source).append('\n');
+            }
             b.append('\n');
+        }
+        return b.toString();
+    }
+
+    public String recommendationText() {
+        StringBuilder b = new StringBuilder();
+        int count = 0;
+        for (DiagnosticFinding finding : findings) {
+            for (FixRecommendation recommendation : finding.recommendations) {
+                count++;
+                b.append(count).append(". ").append(recommendation.title).append('\n');
+                b.append("对应：").append(finding.title).append('\n');
+                b.append(recommendation.detail).append('\n');
+                b.append("参考：").append(recommendation.source).append("\n\n");
+            }
+        }
+        if (count == 0) {
+            return "本次运行没有足够证据生成针对性的修复建议。\n";
         }
         return b.toString();
     }
