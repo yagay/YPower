@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Switched the Diagnostic Center to runtime-session diagnostics.
+- Diagnostic results now contain only checks/events actually observed while the target app runs.
+- Removed static device-environment PASS/FAIL rows from app diagnostic results.
+- Added Start diagnosis -> Launch target app -> Finish & analyze workflow.
+- Diagnostic sessions temporarily enable trace providers, then restore the app's original YPower configuration.
+- YPower force-stop operations are outside the measured window and cannot be misclassified as target-app exits.
+- Added exact package and timestamp tagging to YPowerTrace events.
+- Added a DETECTED result state for observed checks; absent checks are not displayed.
+- Runtime exit correlation now uses events from the same diagnostic session only.
 - Added Recommended apps screen with installed-app filtering.
 - Added built-in recommendation presets for Douyin, Douyin Lite, Hongguo and Hongguo overseas.
 - Recommended presets show suggested Hook groups and apply them in one tap.
