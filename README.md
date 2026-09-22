@@ -21,6 +21,19 @@ YPower 是一个面向 Root / LSPosed 设备的 Android 应用增强与诊断工
   - 模拟目标应用自身权限检查为 `GRANTED`（**仅改变应用侧检查，不等于获得 signature/privileged 权限**）。
   - 敏感环境行为追踪：文件、包查询、系统属性、`Runtime.exec`、`ProcessBuilder`、`android.system.Os`、主动退出等。
 
+### 推荐应用
+
+- 主界面提供“推荐应用”入口，只显示当前设备已安装且命中内置规则的应用。
+- 推荐项会显示“推荐原因”和“建议 Hook 组合”。
+- 一键应用会同时：
+  - 启用 YPower；
+  - 写入推荐的 Root/Hook 配置；
+  - 同步 Remote Preferences；
+  - 请求加入 LSPosed 动态 Scope；
+  - 立即应用 Root 侧后台增强。
+- 首批内置规则：抖音、抖音极速版、红果免费短剧、红果短剧海外版。
+- 推荐配置默认以诊断型 Hook 为主，不自动开启“系统身份模拟/权限状态模拟”这类会改变目标 App 行为的功能。
+
 ### 应用诊断
 
 三个采集级别和三个展示级别互相独立：
