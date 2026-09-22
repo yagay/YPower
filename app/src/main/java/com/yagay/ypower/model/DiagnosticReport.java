@@ -79,9 +79,12 @@ public class DiagnosticReport {
             if (f.detail != null && !f.detail.equals(f.summary)) b.append("详情：").append(f.detail).append('\n');
             for (String e : f.evidence) b.append("证据：").append(e).append('\n');
             for (FixRecommendation recommendation : f.recommendations) {
-                b.append("建议：").append(recommendation.title).append('\n');
-                b.append("  ").append(recommendation.detail).append('\n');
-                b.append("  参考：").append(recommendation.source).append('\n');
+                b.append("说明：").append(recommendation.title).append('\n');
+                b.append("为什么检测：").append(recommendation.whyDetected).append('\n');
+                b.append("开源项目说明：").append(recommendation.projectExplanation).append('\n');
+                b.append("为什么归因：").append(recommendation.whyAttributed).append('\n');
+                b.append("修复/排查：").append(recommendation.repair).append('\n');
+                b.append("参考：").append(recommendation.source).append('\n');
             }
             b.append('\n');
         }
@@ -102,7 +105,10 @@ public class DiagnosticReport {
                         .append(finding.attributionRank == 1 ? "主要归因 · " : "次要归因 · ")
                         .append(finding.title)
                         .append("（").append(finding.correlationScore).append("/100）\n");
-                b.append(recommendation.detail).append('\n');
+                b.append("为什么检测：").append(recommendation.whyDetected).append('\n');
+                b.append("开源项目说明：").append(recommendation.projectExplanation).append('\n');
+                b.append("为什么这次归因：").append(recommendation.whyAttributed).append('\n');
+                b.append("应该怎样修复/排查：").append(recommendation.repair).append('\n');
                 b.append("参考：").append(recommendation.source).append("\n\n");
             }
         }
