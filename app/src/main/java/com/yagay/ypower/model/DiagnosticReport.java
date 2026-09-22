@@ -52,7 +52,10 @@ public class DiagnosticReport {
         if (!exitSummary.isBlank() || !attribution.isBlank()) b.append('\n');
 
         for (DiagnosticFinding finding : findings) {
-            b.append("• ").append(finding.title);
+            b.append("• ");
+            if (finding.attributionRank == 1) b.append("[主要归因] ");
+            else if (finding.attributionRank == 2) b.append("[次要归因] ");
+            b.append(finding.title);
             if (finding.correlationScore > 0) {
                 b.append("  关联 ").append(finding.correlationScore).append("/100");
             }
@@ -66,7 +69,10 @@ public class DiagnosticReport {
         List<DiagnosticFinding> ordered = new ArrayList<>(findings);
         ordered.sort(Comparator.comparingInt((DiagnosticFinding f) -> f.correlationScore).reversed());
         for (DiagnosticFinding f : ordered) {
-            b.append("[ ").append(f.status.zh).append(" ] ").append(f.title).append('\n');
+            b.append("[ ").append(f.status.zh).append(" ] ");
+            if (f.attributionRank == 1) b.append("[主要归因] ");
+            else if (f.attributionRank == 2) b.append("[次要归因] ");
+            b.append(f.title).append('\n');
             b.append("类别：").append(f.category).append('\n');
             b.append("摘要：").append(f.summary).append('\n');
             if (f.correlationScore > 0) b.append("退出关联：").append(f.correlationScore).append("/100\n");
@@ -84,18 +90,24 @@ public class DiagnosticReport {
 
     public String recommendationText() {
         StringBuilder b = new StringBuilder();
+        if (!attribution.isBlank()) {
+            b.append("归因结果：").append(attribution).append("\n\n");
+        }
         int count = 0;
         for (DiagnosticFinding finding : findings) {
             for (FixRecommendation recommendation : finding.recommendations) {
                 count++;
                 b.append(count).append(". ").append(recommendation.title).append('\n');
-                b.append("对应：").append(finding.title).append('\n');
+                b.append("对应：")
+                        .append(finding.attributionRank == 1 ? "主要归因 · " : "次要归因 · ")
+                        .append(finding.title)
+                        .append("（").append(finding.correlationScore).append("/100）\n");
                 b.append(recommendation.detail).append('\n');
                 b.append("参考：").append(recommendation.source).append("\n\n");
             }
         }
         if (count == 0) {
-            return "本次运行没有足够证据生成针对性的修复建议。\n";
+            return "当前归因证据不足，因此不生成修复建议。\n";
         }
         return b.toString();
     }
