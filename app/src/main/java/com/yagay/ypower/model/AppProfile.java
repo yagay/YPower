@@ -10,19 +10,37 @@ import java.util.List;
 public class AppProfile {
     public String packageName;
     public boolean enabled;
+
+    // Root-side enhancements
     public boolean dozeWhitelist = true;
     public boolean backgroundOps = true;
     public boolean standbyActive = true;
     public boolean backgroundData = true;
     public boolean autoGrantDangerous;
+
+    // LSPosed compatibility
     public boolean simulateSystemApp;
     public boolean simulatePermissions;
+
+    // LSPosed diagnostics
+    public boolean tracePackageScan;
+    public boolean traceFiles;
+    public boolean traceCommands;
+    public boolean traceProperties;
+    public boolean traceStacks = true;
+
+    // Legacy fields kept for profile migration.
     public boolean traceJava;
     public boolean traceEnvironment;
+
     public final List<String> simulatedPermissions = new ArrayList<>();
 
     public AppProfile(String packageName) {
         this.packageName = packageName;
+    }
+
+    public boolean anyTraceEnabled() {
+        return tracePackageScan || traceFiles || traceCommands || traceProperties;
     }
 
     public JSONObject toJson() {
@@ -37,10 +55,18 @@ public class AppProfile {
             o.put("autoGrantDangerous", autoGrantDangerous);
             o.put("simulateSystemApp", simulateSystemApp);
             o.put("simulatePermissions", simulatePermissions);
-            o.put("traceJava", traceJava);
-            o.put("traceEnvironment", traceEnvironment);
+            o.put("tracePackageScan", tracePackageScan);
+            o.put("traceFiles", traceFiles);
+            o.put("traceCommands", traceCommands);
+            o.put("traceProperties", traceProperties);
+            o.put("traceStacks", traceStacks);
+
+            // Write legacy aggregate flags for downgrade compatibility.
+            o.put("traceJava", anyTraceEnabled());
+            o.put("traceEnvironment", anyTraceEnabled());
+
             JSONArray a = new JSONArray();
-            for (String p : simulatedPermissions) a.put(p);
+            for (String permission : simulatedPermissions) a.put(permission);
             o.put("simulatedPermissions", a);
         } catch (JSONException ignored) {
         }
@@ -61,8 +87,16 @@ public class AppProfile {
             p.autoGrantDangerous = o.optBoolean("autoGrantDangerous", false);
             p.simulateSystemApp = o.optBoolean("simulateSystemApp", false);
             p.simulatePermissions = o.optBoolean("simulatePermissions", false);
-            p.traceJava = o.optBoolean("traceJava", false);
-            p.traceEnvironment = o.optBoolean("traceEnvironment", false);
+
+            boolean legacyTrace = o.optBoolean("traceJava", false) || o.optBoolean("traceEnvironment", false);
+            p.tracePackageScan = o.has("tracePackageScan") ? o.optBoolean("tracePackageScan", false) : legacyTrace;
+            p.traceFiles = o.has("traceFiles") ? o.optBoolean("traceFiles", false) : legacyTrace;
+            p.traceCommands = o.has("traceCommands") ? o.optBoolean("traceCommands", false) : legacyTrace;
+            p.traceProperties = o.has("traceProperties") ? o.optBoolean("traceProperties", false) : legacyTrace;
+            p.traceStacks = o.optBoolean("traceStacks", true);
+            p.traceJava = legacyTrace;
+            p.traceEnvironment = legacyTrace;
+
             JSONArray a = o.optJSONArray("simulatedPermissions");
             if (a != null) {
                 for (int i = 0; i < a.length(); i++) {
