@@ -16,6 +16,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.yagay.ypower.data.ProfileStore;
+import com.yagay.ypower.data.RecommendedAppRegistry;
 import com.yagay.ypower.root.RootShell;
 import com.yagay.ypower.xposed.XposedBridgeManager;
 
@@ -62,10 +63,19 @@ public class MainActivity extends AppCompatActivity {
         search.setHint("搜索应用或包名");
         root.addView(search, new LinearLayout.LayoutParams(-1, -2));
 
+        LinearLayout actions = new LinearLayout(this);
+
         Button refresh = new Button(this);
         refresh.setText("搜索 / 刷新");
         refresh.setOnClickListener(v -> loadApps(search.getText().toString()));
-        root.addView(refresh);
+        actions.addView(refresh, new LinearLayout.LayoutParams(0, -2, 1));
+
+        Button recommended = new Button(this);
+        recommended.setText("推荐应用");
+        recommended.setOnClickListener(v -> startActivity(new Intent(this, RecommendedAppsActivity.class)));
+        actions.addView(recommended, new LinearLayout.LayoutParams(0, -2, 1));
+
+        root.addView(actions);
 
         ScrollView scroll = new ScrollView(this);
         list = new LinearLayout(this);
@@ -104,7 +114,9 @@ public class MainActivity extends AppCompatActivity {
         row.addView(enabled);
 
         TextView text = new TextView(this);
-        text.setText(label + "\n" + packageName);
+        boolean recommended = RecommendedAppRegistry.find(packageName) != null;
+        text.setText((recommended ? "★ " : "") + label + "\n" + packageName
+                + (recommended ? "\n推荐配置可用" : ""));
         text.setTextSize(16);
         text.setOnClickListener(v -> openDetails(packageName));
         row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
