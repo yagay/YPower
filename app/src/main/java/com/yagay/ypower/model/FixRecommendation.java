@@ -7,13 +7,11 @@ public final class FixRecommendation {
     public String title;
     public String detail;
     public String source;
-    public boolean ypowerCanHelp;
 
-    public FixRecommendation(String title, String detail, String source, boolean ypowerCanHelp) {
+    public FixRecommendation(String title, String detail, String source) {
         this.title = title;
         this.detail = detail;
         this.source = source;
-        this.ypowerCanHelp = ypowerCanHelp;
     }
 
     public JSONObject toJson() {
@@ -22,7 +20,6 @@ public final class FixRecommendation {
             o.put("title", title);
             o.put("detail", detail);
             o.put("source", source);
-            o.put("ypowerCanHelp", ypowerCanHelp);
         } catch (JSONException ignored) {
         }
         return o;
