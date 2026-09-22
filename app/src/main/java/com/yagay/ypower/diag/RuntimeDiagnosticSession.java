@@ -19,15 +19,12 @@ public final class RuntimeDiagnosticSession {
     public static SessionState start(Context context, String packageName, DiagnosticLevel level) {
         Context app = context.getApplicationContext();
         ProfileStore store = ProfileStore.get(app);
-        AppProfile original = store.getProfile(packageName);
-
         SharedPreferences prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        prefs.edit()
-                .putBoolean(key(packageName, "active"), true)
-                .putLong(key(packageName, "start"), System.currentTimeMillis())
-                .putString(key(packageName, "level"), level.name())
-                .putString(key(packageName, "original"), original.toJson().toString())
-                .apply();
+
+        SessionState existing = state(app, packageName);
+        if (existing.active) return existing;
+
+        AppProfile original = store.getProfile(packageName);
 
         AppProfile tracing = AppProfile.fromJson(original.toJson().toString(), packageName);
         tracing.enabled = true;
@@ -41,9 +38,20 @@ public final class RuntimeDiagnosticSession {
         store.save(tracing);
         XposedBridgeManager.requestScope(packageName);
 
+        // Stop the old target process before the measured window begins.
+        // This ensures YPower's own force-stop is never reported as an app runtime exit.
         if (RootShell.isRootAvailable()) {
             RootShell.exec("am force-stop " + ShellEscaper.q(packageName) + " || true");
         }
+
+        long startMs = System.currentTimeMillis();
+        prefs.edit()
+                .putBoolean(key(packageName, "active"), true)
+                .putLong(key(packageName, "start"), startMs)
+                .putLong(key(packageName, "end"), 0L)
+                .putString(key(packageName, "level"), level.name())
+                .putString(key(packageName, "original"), original.toJson().toString())
+                .apply();
 
         return state(app, packageName);
     }
@@ -62,6 +70,16 @@ public final class RuntimeDiagnosticSession {
         SessionState state = state(app, packageName);
         state.endMs = System.currentTimeMillis();
 
+        // Close the measured window before YPower stops the process to unload temporary hooks.
+        prefs.edit()
+                .putBoolean(key(packageName, "active"), false)
+                .putLong(key(packageName, "end"), state.endMs)
+                .apply();
+
+        if (RootShell.isRootAvailable()) {
+            RootShell.exec("am force-stop " + ShellEscaper.q(packageName) + " || true");
+        }
+
         String originalJson = prefs.getString(key(packageName, "original"), null);
         if (originalJson != null) {
             AppProfile original = AppProfile.fromJson(originalJson, packageName);
@@ -69,11 +87,6 @@ public final class RuntimeDiagnosticSession {
             if (original.enabled) XposedBridgeManager.requestScope(packageName);
             else XposedBridgeManager.removeScope(packageName);
         }
-
-        prefs.edit()
-                .putBoolean(key(packageName, "active"), false)
-                .putLong(key(packageName, "end"), state.endMs)
-                .apply();
 
         return state;
     }
@@ -85,7 +98,9 @@ public final class RuntimeDiagnosticSession {
         s.startMs = prefs.getLong(key(packageName, "start"), 0L);
         s.endMs = prefs.getLong(key(packageName, "end"), 0L);
         try {
-            s.level = DiagnosticLevel.valueOf(prefs.getString(key(packageName, "level"), DiagnosticLevel.STANDARD.name()));
+            s.level = DiagnosticLevel.valueOf(
+                    prefs.getString(key(packageName, "level"), DiagnosticLevel.STANDARD.name())
+            );
         } catch (Exception ignored) {
             s.level = DiagnosticLevel.STANDARD;
         }
