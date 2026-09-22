@@ -15,8 +15,12 @@ public class DiagnosticReport {
     public String packageName;
     public DiagnosticLevel level;
     public long createdAt = System.currentTimeMillis();
-    public String exitSummary = "未发现明确异常退出";
-    public String attribution = "当前数据不足以确认唯一触发项";
+    public long sessionStartMs;
+    public long sessionEndMs;
+    public long lastExitTimestamp;
+    public int observedEventCount;
+    public String exitSummary = "";
+    public String attribution = "";
     public final List<DiagnosticFinding> findings = new ArrayList<>();
     public final List<String> raw = new ArrayList<>();
 
@@ -29,10 +33,30 @@ public class DiagnosticReport {
         StringBuilder b = new StringBuilder();
         b.append("应用：").append(packageName).append('\n');
         b.append("级别：").append(level).append('\n');
-        b.append("退出：").append(exitSummary).append('\n');
-        b.append("归因：").append(attribution).append("\n\n");
-        for (DiagnosticFinding f : findings) {
-            b.append(String.format(Locale.ROOT, "%-18s  %s\n", f.title, f.status.zh));
+        if (sessionStartMs > 0) {
+            b.append("运行会话：")
+                    .append(formatTime(sessionStartMs))
+                    .append(" - ")
+                    .append(sessionEndMs > 0 ? formatTime(sessionEndMs) : "进行中")
+                    .append('\n');
+        }
+        b.append("实际观察事件：").append(observedEventCount).append("\n\n");
+
+        if (findings.isEmpty()) {
+            b.append("本次运行未观察到可识别的检测或异常事件。\n");
+            return b.toString();
+        }
+
+        if (!exitSummary.isBlank()) b.append("退出：").append(exitSummary).append('\n');
+        if (!attribution.isBlank()) b.append("归因：").append(attribution).append('\n');
+        if (!exitSummary.isBlank() || !attribution.isBlank()) b.append('\n');
+
+        for (DiagnosticFinding finding : findings) {
+            b.append("• ").append(finding.title);
+            if (finding.correlationScore > 0) {
+                b.append("  关联 ").append(finding.correlationScore).append("/100");
+            }
+            b.append('\n');
         }
         return b.toString();
     }
@@ -54,6 +78,7 @@ public class DiagnosticReport {
     }
 
     public String rawText() {
+        if (raw.isEmpty()) return "本次运行没有采集到可显示的原始事件。\n";
         StringBuilder b = new StringBuilder();
         for (String line : raw) b.append(line).append('\n');
         return b.toString();
@@ -65,7 +90,10 @@ public class DiagnosticReport {
             o.put("packageName", packageName);
             o.put("level", level.name());
             o.put("createdAt", createdAt);
-            o.put("createdAtText", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT).format(new Date(createdAt)));
+            o.put("sessionStartMs", sessionStartMs);
+            o.put("sessionEndMs", sessionEndMs);
+            o.put("observedEventCount", observedEventCount);
+            o.put("lastExitTimestamp", lastExitTimestamp);
             o.put("exitSummary", exitSummary);
             o.put("attribution", attribution);
             JSONArray fs = new JSONArray();
@@ -77,5 +105,9 @@ public class DiagnosticReport {
         } catch (JSONException ignored) {
         }
         return o;
+    }
+
+    private static String formatTime(long timestamp) {
+        return new SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(new Date(timestamp));
     }
 }
