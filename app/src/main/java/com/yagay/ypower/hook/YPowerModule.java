@@ -32,6 +32,7 @@ import io.github.libxposed.api.XposedModuleInterface;
 public final class YPowerModule extends XposedModule {
     private static final String TAG = "YPowerTrace";
     private static final String GROUP = "ypower";
+    private String activePackageName = "";
 
     private static final List<HookProvider> PROVIDERS = List.of(
             new IdentityHookProvider(),
@@ -51,6 +52,7 @@ public final class YPowerModule extends XposedModule {
         AppProfile profile = loadProfile(pkg);
         if (!profile.enabled) return;
 
+        activePackageName = pkg;
         trace(profile, "module", "enabled package=" + pkg, "module");
 
         for (HookProvider provider : PROVIDERS) {
@@ -404,6 +406,7 @@ public final class YPowerModule extends XposedModule {
         long ts = System.currentTimeMillis();
         String stack = profile != null && profile.traceStacks ? shortStack() : "";
         String json = "{\"ts\":" + ts
+                + ",\"package\":\"" + escapeJson(activePackageName) + "\""
                 + ",\"type\":\"" + escapeJson(type) + "\""
                 + ",\"value\":\"" + escapeJson(value) + "\""
                 + ",\"source\":\"" + escapeJson(source) + "\""
