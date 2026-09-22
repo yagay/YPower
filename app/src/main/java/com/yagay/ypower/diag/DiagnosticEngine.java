@@ -69,7 +69,7 @@ public final class DiagnosticEngine {
             List<ApplicationExitInfo> infos = am.getHistoricalProcessExitReasons(report.packageName, 0, 20);
             for (ApplicationExitInfo info : infos) {
                 long ts = info.getTimestamp();
-                if (ts < report.sessionStartMs || ts > report.sessionEndMs + 3000L) continue;
+                if (ts < report.sessionStartMs || ts > report.sessionEndMs) continue;
 
                 report.lastExitTimestamp = Math.max(report.lastExitTimestamp, ts);
                 String title = exitTitle(info.getReason());
@@ -90,9 +90,8 @@ public final class DiagnosticEngine {
                 report.raw.add("[exit-info] " + finding.evidence.get(0));
                 report.observedEventCount++;
             }
-        } catch (Throwable t) {
-            // Runtime-only diagnostics intentionally do not add "unknown" rows.
-            report.raw.add("[exit-info-error] " + t.getClass().getSimpleName() + ": " + t.getMessage());
+        } catch (Throwable ignored) {
+            // Runtime-only diagnostics intentionally do not add non-event rows.
         }
     }
 
