@@ -16,6 +16,7 @@ public class DiagnosticFinding {
     public String detail;
     public int correlationScore;
     public final List<String> evidence = new ArrayList<>();
+    public final List<FixRecommendation> recommendations = new ArrayList<>();
 
     public DiagnosticFinding(String id, String category, String title, DiagnosticStatus status, String summary) {
         this.id = id;
@@ -49,6 +50,12 @@ public class DiagnosticFinding {
             JSONArray arr = new JSONArray();
             for (String e : evidence) arr.put(e);
             o.put("evidence", arr);
+
+            JSONArray recs = new JSONArray();
+            for (FixRecommendation recommendation : recommendations) {
+                recs.put(recommendation.toJson());
+            }
+            o.put("recommendations", recs);
         } catch (JSONException ignored) {
         }
         return o;
