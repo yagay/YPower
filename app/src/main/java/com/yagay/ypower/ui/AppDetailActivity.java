@@ -42,7 +42,10 @@ public class AppDetailActivity extends AppCompatActivity {
         root.addView(title);
 
         CheckBox enabled = addCheck(root, "启用 YPower 增强", profile.enabled);
-        enabled.setOnCheckedChangeListener((v, checked) -> { profile.enabled = checked; save(); });
+        enabled.setOnCheckedChangeListener((v, checked) -> {
+            profile.enabled = checked;
+            save();
+        });
 
         root.addView(section("无需目标 App Hook"));
         CheckBox doze = addCheck(root, "Doze 白名单", profile.dozeWhitelist);
@@ -52,9 +55,20 @@ public class AppDetailActivity extends AppCompatActivity {
         CheckBox grant = addCheck(root, "自动授予可正常 grant 的危险权限", profile.autoGrantDangerous);
 
         root.addView(section("目标进程兼容层（需要 LSPosed）"));
-        CheckBox system = addCheck(root, "模拟 System App 身份（仅目标 App 进程看到）", profile.simulateSystemApp);
+        CheckBox system = addCheck(root, "模拟 System App 身份", profile.simulateSystemApp);
         CheckBox perm = addCheck(root, "模拟权限状态（默认位置权限；不等于真正 privileged 权限）", profile.simulatePermissions);
-        CheckBox trace = addCheck(root, "Java/环境行为追踪", profile.traceJava || profile.traceEnvironment);
+
+        root.addView(section("目标进程诊断追踪（需要 LSPosed）"));
+        CheckBox packageScan = addCheck(root, "包扫描追踪（Magisk / KernelSU / LSPosed / Frida 等）", profile.tracePackageScan);
+        CheckBox files = addCheck(root, "文件与 /proc 访问追踪", profile.traceFiles);
+        CheckBox commands = addCheck(root, "命令执行与主动退出追踪", profile.traceCommands);
+        CheckBox properties = addCheck(root, "系统属性 / Boot 状态查询追踪", profile.traceProperties);
+        CheckBox stacks = addCheck(root, "记录短调用栈", profile.traceStacks);
+
+        TextView note = new TextView(this);
+        note.setText("诊断追踪默认只记录敏感调用并继续执行原逻辑，不修改检测结果。修改这些 Hook 开关后，需要重新启动目标 App 才会重新安装对应 Hook。");
+        note.setPadding(0, dp(8), 0, dp(12));
+        root.addView(note);
 
         Button apply = new Button(this);
         apply.setText("保存并应用增强");
@@ -67,8 +81,13 @@ public class AppDetailActivity extends AppCompatActivity {
             profile.autoGrantDangerous = grant.isChecked();
             profile.simulateSystemApp = system.isChecked();
             profile.simulatePermissions = perm.isChecked();
-            profile.traceJava = trace.isChecked();
-            profile.traceEnvironment = trace.isChecked();
+            profile.tracePackageScan = packageScan.isChecked();
+            profile.traceFiles = files.isChecked();
+            profile.traceCommands = commands.isChecked();
+            profile.traceProperties = properties.isChecked();
+            profile.traceStacks = stacks.isChecked();
+            profile.traceJava = profile.anyTraceEnabled();
+            profile.traceEnvironment = profile.anyTraceEnabled();
             save();
             EnhancementEngine.applyAsync(this, profile, result -> runOnUiThread(() ->
                     Toast.makeText(this, result.summary(), Toast.LENGTH_LONG).show()));
@@ -86,7 +105,9 @@ public class AppDetailActivity extends AppCompatActivity {
         setContentView(scroll);
     }
 
-    private void save() { ProfileStore.get(this).save(profile); }
+    private void save() {
+        ProfileStore.get(this).save(profile);
+    }
 
     private CheckBox addCheck(LinearLayout root, String text, boolean checked) {
         CheckBox box = new CheckBox(this);
@@ -105,5 +126,7 @@ public class AppDetailActivity extends AppCompatActivity {
         return v;
     }
 
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
 }
