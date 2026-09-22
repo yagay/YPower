@@ -15,6 +15,8 @@ public class DiagnosticFinding {
     public String summary;
     public String detail;
     public int correlationScore;
+    // 0 = not attributed, 1 = primary cause candidate, 2 = secondary cause candidate.
+    public int attributionRank;
     public final List<String> evidence = new ArrayList<>();
     public final List<FixRecommendation> recommendations = new ArrayList<>();
 
@@ -47,6 +49,7 @@ public class DiagnosticFinding {
             o.put("summary", summary);
             o.put("detail", detail);
             o.put("correlationScore", correlationScore);
+            o.put("attributionRank", attributionRank);
             JSONArray arr = new JSONArray();
             for (String e : evidence) arr.put(e);
             o.put("evidence", arr);
