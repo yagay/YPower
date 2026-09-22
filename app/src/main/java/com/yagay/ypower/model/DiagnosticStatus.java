@@ -1,8 +1,9 @@
 package com.yagay.ypower.model;
 
 public enum DiagnosticStatus {
+    DETECTED("检测到", "DETECTED"),
     PASS("通过", "PASS"),
-    FAIL("未通过", "FAIL"),
+    FAIL("异常", "FAIL"),
     WARN("警告", "WARN"),
     UNKNOWN("未知", "UNKNOWN");
 
