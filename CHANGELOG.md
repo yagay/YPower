@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Switched fix advice to attribution-driven recommendations.
+- Only primary and qualified secondary causal findings can generate recommendations.
+- Ordinary observed checks no longer generate generic advice.
+- Added explicit primary/secondary attribution labels and scores to simple/detailed/advice views.
+- Suppress recommendations when there is no real exit or causal evidence is insufficient.
+
 - Switched the Diagnostic Center to runtime-session diagnostics.
 - Diagnostic results now contain only checks/events actually observed while the target app runs.
 - Removed static device-environment PASS/FAIL rows from app diagnostic results.
