@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.yagay.ypower.model.AppProfile;
+import com.yagay.ypower.model.RecommendedAppPreset;
 import com.yagay.ypower.xposed.XposedBridgeManager;
 
 import org.json.JSONArray;
@@ -52,6 +53,31 @@ public final class ProfileStore {
         save(p);
         if (enabled) XposedBridgeManager.requestScope(packageName);
         else XposedBridgeManager.removeScope(packageName);
+    }
+
+    public synchronized AppProfile applyRecommendedPreset(RecommendedAppPreset preset) {
+        AppProfile p = getProfile(preset.packageName);
+        p.enabled = true;
+
+        p.dozeWhitelist = preset.dozeWhitelist;
+        p.backgroundOps = preset.backgroundOps;
+        p.standbyActive = preset.standbyActive;
+        p.backgroundData = preset.backgroundData;
+
+        p.simulateSystemApp = preset.simulateSystemApp;
+        p.simulatePermissions = preset.simulatePermissions;
+
+        p.tracePackageScan = preset.tracePackageScan;
+        p.traceFiles = preset.traceFiles;
+        p.traceCommands = preset.traceCommands;
+        p.traceProperties = preset.traceProperties;
+        p.traceStacks = preset.traceStacks;
+        p.traceJava = p.anyTraceEnabled();
+        p.traceEnvironment = p.anyTraceEnabled();
+
+        save(p);
+        XposedBridgeManager.requestScope(p.packageName);
+        return p;
     }
 
     public synchronized List<String> getEnabledPackages() {
