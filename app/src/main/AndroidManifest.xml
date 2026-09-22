@@ -16,6 +16,9 @@
         android:theme="@style/Theme.YPower">
 
         <activity
+            android:name=".ui.RecommendedAppsActivity"
+            android:exported="false" />
+        <activity
             android:name=".ui.DiagnosticActivity"
             android:exported="false" />
         <activity
