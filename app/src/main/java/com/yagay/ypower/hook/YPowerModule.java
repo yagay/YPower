@@ -173,7 +173,12 @@ public final class YPowerModule extends XposedModule {
                 String name = method.getName();
                 if (!isPackageScanMethod(name)) continue;
                 hook(method).intercept(chain -> {
-                    String value = summarizeArgs(method, chain);
+                    StringBuilder args = new StringBuilder();
+                    for (int i = 0; i < method.getParameterCount(); i++) {
+                        if (i > 0) args.append(" | ");
+                        args.append(stringify(chain.getArg(i)));
+                    }
+                    String value = args.toString();
                     if (isEnumerationMethod(name) || looksSensitivePackageQuery(value)) {
                         trace(profile, "package", name + " " + value, "ApplicationPackageManager");
                     }
@@ -382,11 +387,6 @@ public final class YPowerModule extends XposedModule {
                 || s.contains("magisk")
                 || s.contains("kernelsu")
                 || s.contains("apatch");
-    }
-
-    private static String summarizeArgs(Method method, Object chainObject) {
-        // Kept as a separate helper so package-scan tracing stays compact.
-        return method.getName();
     }
 
     private static String stringArg(Object value) {
