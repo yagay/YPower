@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Split LSPosed into six independently controlled providers: Identity, Permission, PackageScan, FileTrace, CommandTrace and PropertyTrace.
+- Added ApplicationPackageManager identity flag compatibility.
+- Added PackageManager environment/package enumeration tracing.
+- Added FileInputStream/RandomAccessFile sensitive path tracing.
+- Added all Runtime.exec overloads, ProcessBuilder and active-exit tracing.
+- Added SystemProperties/System.getProperty tracing for boot/integrity/environment checks.
+- Added compact call stacks to sensitive YPowerTrace events.
+- Migrates the old aggregate Java/environment trace switch into the new per-provider switches.
+
 ## 0.1.0
 
 - Initial YPower implementation.
