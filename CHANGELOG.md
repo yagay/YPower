@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Expanded attribution output with GitHub project rationale: why the app checks a signal, what the referenced project says, why YPower attributed it, and how to repair or investigate.
+- Renamed the Advice view to Attribution explanation.
+- Root/Hook/integrity guidance remains compatibility-oriented and does not provide concealment/bypass steps.
+
 - Switched fix advice to attribution-driven recommendations.
 - Only primary and qualified secondary causal findings can generate recommendations.
 - Ordinary observed checks no longer generate generic advice.
