@@ -3,13 +3,6 @@ package com.yagay.ypower.diag;
 import android.app.ActivityManager;
 import android.app.ApplicationExitInfo;
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.net.ConnectivityManager;
-import android.net.NetworkCapabilities;
-import android.os.Build;
-import android.provider.Settings;
 
 import com.yagay.ypower.model.DiagnosticFinding;
 import com.yagay.ypower.model.DiagnosticLevel;
@@ -18,252 +11,461 @@ import com.yagay.ypower.model.DiagnosticStatus;
 import com.yagay.ypower.root.RootShell;
 import com.yagay.ypower.util.ShellEscaper;
 
-import java.security.MessageDigest;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class DiagnosticEngine {
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+
     private DiagnosticEngine() {}
 
-    public interface Callback { void onComplete(DiagnosticReport report); }
-
-    public static void runAsync(Context context, String packageName, DiagnosticLevel level, Callback callback) {
-        Context app = context.getApplicationContext();
-        EXECUTOR.execute(() -> callback.onComplete(run(app, packageName, level)));
+    public interface Callback {
+        void onComplete(DiagnosticReport report);
     }
 
-    public static DiagnosticReport run(Context context, String packageName, DiagnosticLevel level) {
+    public static void runAsync(
+            Context context,
+            String packageName,
+            DiagnosticLevel level,
+            long startMs,
+            long endMs,
+            Callback callback
+    ) {
+        Context app = context.getApplicationContext();
+        EXECUTOR.execute(() -> callback.onComplete(run(app, packageName, level, startMs, endMs)));
+    }
+
+    public static DiagnosticReport run(
+            Context context,
+            String packageName,
+            DiagnosticLevel level,
+            long startMs,
+            long endMs
+    ) {
         DiagnosticReport report = new DiagnosticReport(packageName, level);
-        PackageManager pm = context.getPackageManager();
-        boolean root = RootShell.isRootAvailable();
-        add(report, "root", "Root 权限", root ? DiagnosticStatus.FAIL : DiagnosticStatus.PASS,
-                root ? "YPower 当前可以获得 root shell" : "未获得 root shell");
+        report.sessionStartMs = startMs;
+        report.sessionEndMs = endMs > 0 ? endMs : System.currentTimeMillis();
 
-        scanKnownPackages(pm, report);
-        scanRootPaths(report);
-        scanBuild(report);
-        scanSelinux(report);
-        scanMounts(report, level);
-        scanDeveloperState(context, report);
-        scanNetwork(context, report);
-        scanPackageMetadata(pm, packageName, report);
-        scanExitInfo(context, packageName, report);
-        scanLogcat(packageName, report, level);
-
-        if (level != DiagnosticLevel.QUICK) scanProcess(packageName, report, level);
-        if (level == DiagnosticLevel.DEEP) scanDeepProc(packageName, report);
-
-        add(report, "integrity", "Play Integrity", DiagnosticStatus.UNKNOWN,
-                "Google/服务端判定不能仅凭本地环境扫描还原具体 verdict");
-        add(report, "integrity", "Key Attestation", DiagnosticStatus.UNKNOWN,
-                "需要应用自身或专门 attestation 流程提供结果");
-        add(report, "server", "服务端风控", DiagnosticStatus.UNKNOWN,
-                "如果退出由服务端决定，本地通常只能定位到请求/响应阶段");
+        collectExitInfo(context, report);
+        collectRuntimeTrace(report);
+        if (level == DiagnosticLevel.DEEP) collectTargetLogcat(report);
 
         CorrelationEngine.analyze(report);
         return report;
     }
 
-    private static void scanKnownPackages(PackageManager pm, DiagnosticReport report) {
-        List<String> foundRoot = installed(pm, DetectionRules.ROOT_PACKAGES);
-        add(report, "root", "Root 管理应用", foundRoot.isEmpty() ? DiagnosticStatus.PASS : DiagnosticStatus.FAIL,
-                foundRoot.isEmpty() ? "未发现常见 Root 管理应用" : String.join(", ", foundRoot));
-        List<String> hook = installed(pm, DetectionRules.HOOK_PACKAGES);
-        add(report, "hook", "LSPosed/Xposed", hook.isEmpty() ? DiagnosticStatus.PASS : DiagnosticStatus.WARN,
-                hook.isEmpty() ? "未发现常见 Hook 管理应用" : String.join(", ", hook));
-        List<String> virtual = installed(pm, DetectionRules.VIRTUAL_PACKAGES);
-        add(report, "virtual", "虚拟空间/双开", virtual.isEmpty() ? DiagnosticStatus.PASS : DiagnosticStatus.WARN,
-                virtual.isEmpty() ? "未发现常见虚拟空间应用" : String.join(", ", virtual));
-    }
-
-    private static void scanRootPaths(DiagnosticReport report) {
-        if (!RootShell.isRootAvailable()) {
-            add(report, "root", "Root 路径", DiagnosticStatus.UNKNOWN, "无 root，无法完整扫描受保护路径");
-            return;
-        }
-        List<String> found = new ArrayList<>();
-        for (String path : DetectionRules.ROOT_PATHS) {
-            RootShell.CommandResult r = RootShell.exec("[ -e " + ShellEscaper.q(path) + " ] && echo " + ShellEscaper.q(path) + " || true");
-            if (!r.text().isBlank()) found.add(path);
-        }
-        add(report, "root", "Root/Systemless 路径", found.isEmpty() ? DiagnosticStatus.PASS : DiagnosticStatus.FAIL,
-                found.isEmpty() ? "未发现规则库中的路径" : String.join(", ", found));
-    }
-
-    private static void scanBuild(DiagnosticReport report) {
-        boolean testKeys = Build.TAGS != null && Build.TAGS.contains("test-keys");
-        add(report, "build", "Build Tags", testKeys ? DiagnosticStatus.WARN : DiagnosticStatus.PASS,
-                String.valueOf(Build.TAGS));
-        String props = RootShell.exec("getprop ro.boot.verifiedbootstate; getprop ro.boot.vbmeta.device_state; getprop ro.debuggable; getprop ro.secure").text();
-        report.raw.add("[build-properties]\n" + props);
-        String lower = props.toLowerCase(Locale.ROOT);
-        DiagnosticStatus status = (lower.contains("orange") || lower.contains("unlocked"))
-                ? DiagnosticStatus.WARN : DiagnosticStatus.PASS;
-        add(report, "integrity", "Bootloader/AVB", status, props.isBlank() ? "属性不可用" : props);
-    }
-
-    private static void scanSelinux(DiagnosticReport report) {
-        String mode = RootShell.exec("getenforce 2>/dev/null || getprop ro.build.selinux").text();
-        add(report, "selinux", "SELinux", "Enforcing".equalsIgnoreCase(mode.trim()) ? DiagnosticStatus.PASS : DiagnosticStatus.WARN,
-                mode.isBlank() ? "状态未知" : mode);
-    }
-
-    private static void scanMounts(DiagnosticReport report, DiagnosticLevel level) {
-        if (!RootShell.isRootAvailable()) {
-            add(report, "mount", "异常挂载", DiagnosticStatus.UNKNOWN, "无 root，无法完整读取 mount namespace");
-            return;
-        }
-        String cmd = level == DiagnosticLevel.QUICK
-                ? "mount | grep -Ei 'overlay|magisk|kernelsu|apatch|modules' | head -n 30 || true"
-                : "cat /proc/1/mountinfo | grep -Ei 'overlay|magisk|kernelsu|apatch|modules' | head -n 60 || true";
-        String out = RootShell.exec(cmd).text();
-        report.raw.add("[mount]\n" + out);
-        add(report, "mount", "Systemless/Overlay 挂载", out.isBlank() ? DiagnosticStatus.PASS : DiagnosticStatus.WARN,
-                out.isBlank() ? "未发现规则库关键词" : "发现可疑挂载，详细结果中查看原始记录");
-    }
-
-    private static void scanDeveloperState(Context context, DiagnosticReport report) {
-        try {
-            int dev = Settings.Global.getInt(context.getContentResolver(), Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0);
-            int adb = Settings.Global.getInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 0);
-            add(report, "settings", "开发者选项", dev == 0 ? DiagnosticStatus.PASS : DiagnosticStatus.WARN, "enabled=" + dev);
-            add(report, "settings", "ADB", adb == 0 ? DiagnosticStatus.PASS : DiagnosticStatus.WARN, "enabled=" + adb);
-        } catch (Throwable t) {
-            add(report, "settings", "开发者选项/ADB", DiagnosticStatus.UNKNOWN, t.toString());
-        }
-    }
-
-    private static void scanNetwork(Context context, DiagnosticReport report) {
-        try {
-            ConnectivityManager cm = context.getSystemService(ConnectivityManager.class);
-            NetworkCapabilities caps = cm == null || cm.getActiveNetwork() == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
-            boolean vpn = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
-            add(report, "network", "VPN/Tunnel", vpn ? DiagnosticStatus.WARN : DiagnosticStatus.PASS,
-                    vpn ? "当前活动网络包含 VPN transport" : "未发现活动 VPN transport");
-            String host = System.getProperty("http.proxyHost", "");
-            String port = System.getProperty("http.proxyPort", "");
-            boolean proxy = !host.isBlank();
-            add(report, "network", "系统代理", proxy ? DiagnosticStatus.WARN : DiagnosticStatus.PASS,
-                    proxy ? host + ":" + port : "未设置 Java HTTP proxy");
-        } catch (Throwable t) {
-            add(report, "network", "网络环境", DiagnosticStatus.UNKNOWN, t.toString());
-        }
-    }
-
-    private static void scanPackageMetadata(PackageManager pm, String packageName, DiagnosticReport report) {
-        try {
-            ApplicationInfo ai = pm.getApplicationInfo(packageName, 0);
-            PackageInfo pi = pm.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES | PackageManager.GET_PERMISSIONS);
-            add(report, "package", "目标应用", DiagnosticStatus.PASS,
-                    "uid=" + ai.uid + ", sourceDir=" + ai.sourceDir + ", version=" + pi.versionName);
-            if (pi.signingInfo != null && pi.signingInfo.getApkContentsSigners().length > 0) {
-                byte[] cert = pi.signingInfo.getApkContentsSigners()[0].toByteArray();
-                MessageDigest md = MessageDigest.getInstance("SHA-256");
-                add(report, "signature", "APK 签名", DiagnosticStatus.PASS, hex(md.digest(cert)));
-            }
-            if (pi.requestedPermissions != null) {
-                add(report, "permission", "Manifest 权限", DiagnosticStatus.PASS, "声明 " + pi.requestedPermissions.length + " 项");
-            }
-        } catch (Throwable t) {
-            add(report, "package", "目标应用", DiagnosticStatus.FAIL, t.toString());
-        }
-    }
-
-    private static void scanExitInfo(Context context, String packageName, DiagnosticReport report) {
+    private static void collectExitInfo(Context context, DiagnosticReport report) {
         try {
             ActivityManager am = context.getSystemService(ActivityManager.class);
             if (am == null) return;
-            List<ApplicationExitInfo> infos = am.getHistoricalProcessExitReasons(packageName, 0, 8);
-            if (infos.isEmpty()) {
-                add(report, "crash", "Process Exit Info", DiagnosticStatus.PASS, "没有可访问的近期退出记录");
-                return;
-            }
-            StringBuilder b = new StringBuilder();
+
+            List<ApplicationExitInfo> infos = am.getHistoricalProcessExitReasons(report.packageName, 0, 20);
             for (ApplicationExitInfo info : infos) {
-                b.append("reason=").append(info.getReason())
-                        .append(" status=").append(info.getStatus())
-                        .append(" importance=").append(info.getImportance())
-                        .append(" description=").append(info.getDescription()).append('\n');
+                long ts = info.getTimestamp();
+                if (ts < report.sessionStartMs || ts > report.sessionEndMs + 3000L) continue;
+
+                report.lastExitTimestamp = Math.max(report.lastExitTimestamp, ts);
+                String title = exitTitle(info.getReason());
+                DiagnosticFinding finding = new DiagnosticFinding(
+                        "runtime.exit." + info.getReason() + "." + ts,
+                        "exit",
+                        title,
+                        isAbnormalExit(info.getReason()) ? DiagnosticStatus.FAIL : DiagnosticStatus.DETECTED,
+                        exitSummary(info)
+                );
+                finding.correlationScore = isAbnormalExit(info.getReason()) ? 100 : 70;
+                finding.evidence(formatTime(ts) + " reason=" + info.getReason()
+                        + " status=" + info.getStatus()
+                        + " pid=" + info.getPid()
+                        + " importance=" + info.getImportance()
+                        + " description=" + safe(info.getDescription()));
+                report.findings.add(finding);
+                report.raw.add("[exit-info] " + finding.evidence.get(0));
+                report.observedEventCount++;
             }
-            report.raw.add("[exit-info]\n" + b);
-            add(report, "crash", "Process Exit Info", DiagnosticStatus.WARN, "发现 " + infos.size() + " 条近期退出记录");
         } catch (Throwable t) {
-            add(report, "crash", "Process Exit Info", DiagnosticStatus.UNKNOWN, "系统未允许读取：" + t.getClass().getSimpleName());
+            // Runtime-only diagnostics intentionally do not add "unknown" rows.
+            report.raw.add("[exit-info-error] " + t.getClass().getSimpleName() + ": " + t.getMessage());
         }
     }
 
-    private static void scanLogcat(String packageName, DiagnosticReport report, DiagnosticLevel level) {
-        if (!RootShell.isRootAvailable()) {
-            add(report, "crash", "Logcat", DiagnosticStatus.UNKNOWN, "无 root，无法稳定读取其他应用完整 logcat");
-            return;
-        }
-        int lines = level == DiagnosticLevel.DEEP ? 1200 : level == DiagnosticLevel.STANDARD ? 700 : 350;
-        String filter = packageName + "|AndroidRuntime|DEBUG|ActivityManager|lmkd|avc: denied|YPowerTrace";
-        String out = RootShell.exec("logcat -d -t " + lines + " | grep -Ei " + ShellEscaper.q(filter) + " | tail -n " + lines).text();
-        report.raw.add("[logcat]\n" + out);
-        boolean crash = false;
-        for (String keyword : DetectionRules.CRASH_KEYWORDS) if (out.contains(keyword)) { crash = true; break; }
-        add(report, "crash", "Java/Native/ANR 日志", crash ? DiagnosticStatus.FAIL : DiagnosticStatus.PASS,
-                crash ? "发现崩溃/ANR/权限/SELinux 等异常关键词" : "当前采样未发现规则库异常关键词");
-    }
-
-    private static void scanProcess(String packageName, DiagnosticReport report, DiagnosticLevel level) {
+    private static void collectRuntimeTrace(DiagnosticReport report) {
         if (!RootShell.isRootAvailable()) return;
-        String pid = RootShell.exec("pidof " + ShellEscaper.q(packageName) + " || true").text().trim();
-        if (pid.isBlank()) {
-            add(report, "process", "运行进程", DiagnosticStatus.UNKNOWN, "目标应用当前未运行");
-            return;
+
+        int lineCount = report.level == DiagnosticLevel.DEEP ? 10000
+                : report.level == DiagnosticLevel.STANDARD ? 6000 : 3000;
+
+        String out = RootShell.exec(
+                "logcat -d -v epoch -t " + lineCount
+                        + " | grep -F " + ShellEscaper.q("YPowerTrace")
+                        + " || true"
+        ).text();
+
+        if (out.isBlank()) return;
+
+        List<String> lines = List.of(out.split("\\R"));
+        List<LogEventParser.TraceEvent> events = LogEventParser.parse(
+                lines,
+                report.packageName,
+                report.sessionStartMs,
+                report.sessionEndMs
+        );
+
+        Map<String, DiagnosticFinding> findings = new LinkedHashMap<>();
+        Map<String, Integer> counts = new LinkedHashMap<>();
+
+        for (LogEventParser.TraceEvent event : events) {
+            if ("module".equals(event.type) || "provider".equals(event.type)) continue;
+
+            report.observedEventCount++;
+            report.raw.add(toRaw(event));
+
+            EventDescriptor descriptor = describe(event);
+            if (descriptor == null) continue;
+
+            String key = descriptor.category + "|" + descriptor.title;
+            DiagnosticFinding finding = findings.get(key);
+            if (finding == null) {
+                finding = new DiagnosticFinding(
+                        "runtime." + Math.abs(key.hashCode()),
+                        descriptor.category,
+                        descriptor.title,
+                        descriptor.status,
+                        descriptor.summary
+                );
+                findings.put(key, finding);
+                counts.put(key, 0);
+            }
+
+            int count = counts.get(key) + 1;
+            counts.put(key, count);
+
+            int evidenceLimit = report.level == DiagnosticLevel.QUICK ? 4
+                    : report.level == DiagnosticLevel.STANDARD ? 12 : 30;
+            if (finding.evidence.size() < evidenceLimit) {
+                String evidence = formatTime(event.ts) + " "
+                        + event.source + " → " + event.value;
+                if (report.level != DiagnosticLevel.QUICK && event.stack != null && !event.stack.isBlank()) {
+                    evidence += "\n  stack: " + event.stack;
+                }
+                finding.evidence(evidence);
+            }
+
+            if ("exit".equals(event.type)) {
+                report.lastExitTimestamp = Math.max(report.lastExitTimestamp, event.ts);
+                finding.correlationScore = 100;
+            }
         }
-        String firstPid = pid.split("\\s+")[0];
-        String status = RootShell.exec("cat /proc/" + firstPid + "/status 2>/dev/null || true").text();
-        report.raw.add("[proc-status pid=" + firstPid + "]\n" + status);
-        add(report, "process", "运行进程", DiagnosticStatus.PASS, "pid=" + firstPid);
-        if (level != DiagnosticLevel.QUICK) {
-            String maps = RootShell.exec("grep -Ei 'lsposed|xposed|zygisk|riru|frida|shadowhook|bytehook|libxposed' /proc/" + firstPid + "/maps 2>/dev/null | head -n 80 || true").text();
-            report.raw.add("[proc-maps]\n" + maps);
-            add(report, "hook", "进程注入/Maps", maps.isBlank() ? DiagnosticStatus.PASS : DiagnosticStatus.WARN,
-                    maps.isBlank() ? "未发现规则库关键词" : "maps 中发现 Hook/注入相关关键词");
+
+        for (Map.Entry<String, DiagnosticFinding> entry : findings.entrySet()) {
+            DiagnosticFinding finding = entry.getValue();
+            int count = counts.get(entry.getKey());
+            finding.summary = finding.summary + "；本次运行触发 " + count + " 次";
+            if (finding.correlationScore == 0 && report.lastExitTimestamp > 0) {
+                finding.correlationScore = scoreFromEvidenceTime(finding, report.lastExitTimestamp);
+            }
+            report.findings.add(finding);
         }
     }
 
-    private static void scanDeepProc(String packageName, DiagnosticReport report) {
+    private static void collectTargetLogcat(DiagnosticReport report) {
         if (!RootShell.isRootAvailable()) return;
-        String pid = RootShell.exec("pidof " + ShellEscaper.q(packageName) + " || true").text().trim();
-        if (pid.isBlank()) return;
-        String firstPid = pid.split("\\s+")[0];
-        String threads = RootShell.exec("for t in /proc/" + firstPid + "/task/*/comm; do cat \"$t\" 2>/dev/null; done | head -n 200").text();
-        String fds = RootShell.exec("ls -l /proc/" + firstPid + "/fd 2>/dev/null | head -n 200 || true").text();
-        String mem = RootShell.exec("cat /proc/" + firstPid + "/smaps_rollup 2>/dev/null || cat /proc/" + firstPid + "/status 2>/dev/null").text();
-        report.raw.add("[threads]\n" + threads);
-        report.raw.add("[fds]\n" + fds);
-        report.raw.add("[memory]\n" + mem);
-        String lower = threads.toLowerCase(Locale.ROOT);
-        boolean suspicious = DetectionRules.MAP_KEYWORDS.stream().anyMatch(lower::contains);
-        add(report, "hook", "线程特征", suspicious ? DiagnosticStatus.WARN : DiagnosticStatus.PASS,
-                suspicious ? "线程名中发现注入/Hook 关键词" : "当前线程名未发现规则库关键词");
-        add(report, "resource", "FD/Memory 快照", DiagnosticStatus.PASS, "深度模式已采集到原始报告");
-    }
 
-    private static List<String> installed(PackageManager pm, List<String> packages) {
-        List<String> found = new ArrayList<>();
-        for (String pkg : packages) {
-            try { pm.getPackageInfo(pkg, 0); found.add(pkg); }
-            catch (PackageManager.NameNotFoundException ignored) {}
+        String currentPid = RootShell.exec(
+                "pidof " + ShellEscaper.q(report.packageName) + " || true"
+        ).text().trim();
+
+        StringBuilder pattern = new StringBuilder(report.packageName);
+        if (!currentPid.isBlank()) {
+            for (String pid : currentPid.split("\\s+")) {
+                if (!pid.isBlank()) pattern.append('|').append(pid);
+            }
         }
-        return found;
+        pattern.append("|AndroidRuntime|Fatal signal|ANR in|avc: denied|lmkd");
+
+        String out = RootShell.exec(
+                "logcat -d -v epoch -t 5000 | grep -Ei "
+                        + ShellEscaper.q(pattern.toString())
+                        + " || true"
+        ).text();
+
+        if (out.isBlank()) return;
+
+        long startSec = report.sessionStartMs / 1000L;
+        long endSec = (report.sessionEndMs + 3000L) / 1000L;
+        int kept = 0;
+        for (String line : out.split("\\R")) {
+            long epoch = parseEpochSeconds(line);
+            if (epoch > 0 && (epoch < startSec || epoch > endSec)) continue;
+            if (!line.contains(report.packageName)
+                    && currentPid.isBlank()
+                    && !line.contains("AndroidRuntime")) {
+                continue;
+            }
+            if (kept++ >= 120) break;
+            report.raw.add("[logcat] " + line);
+        }
     }
 
-    private static void add(DiagnosticReport report, String category, String title, DiagnosticStatus status, String summary) {
-        report.findings.add(new DiagnosticFinding(category + "." + title.hashCode(), category, title, status, summary));
+    private static EventDescriptor describe(LogEventParser.TraceEvent event) {
+        String value = (event.value == null ? "" : event.value).toLowerCase(Locale.ROOT);
+
+        switch (event.type) {
+            case "package":
+                return new EventDescriptor(
+                        "package",
+                        "包/安装环境查询",
+                        DiagnosticStatus.DETECTED,
+                        "目标 App 实际查询了安装包或安装来源信息"
+                );
+
+            case "property":
+                if (value.contains("verifiedboot") || value.contains("vbmeta")
+                        || value.contains("flash.locked") || value.contains("ro.boot.")) {
+                    return new EventDescriptor(
+                            "integrity",
+                            "Bootloader / AVB 属性检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际读取了启动完整性相关系统属性"
+                    );
+                }
+                if (value.contains("ro.debuggable") || value.contains("ro.secure")
+                        || value.contains("ro.build.tags") || value.contains("ro.build.type")) {
+                    return new EventDescriptor(
+                            "environment",
+                            "系统构建 / 调试属性检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际读取了调试、secure 或 build 状态"
+                    );
+                }
+                return new EventDescriptor(
+                        "environment",
+                        "系统属性检测",
+                        DiagnosticStatus.DETECTED,
+                        "目标 App 实际读取了环境相关系统属性"
+                );
+
+            case "file":
+                if (value.contains("/proc/self/maps")) {
+                    return new EventDescriptor(
+                            "hook",
+                            "/proc/self/maps 注入环境检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际读取或检查了自身 maps"
+                    );
+                }
+                if (value.contains("/proc/self/status") || value.contains("tracerpid")) {
+                    return new EventDescriptor(
+                            "debugger",
+                            "调试器 / TracerPid 检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际读取了调试状态相关 /proc 信息"
+                    );
+                }
+                if (value.contains("mountinfo") || value.contains("/proc/mount")
+                        || value.contains("/data/adb")) {
+                    return new EventDescriptor(
+                            "mount",
+                            "Systemless / Mount 环境检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际检查了 mount 或 /data/adb 环境"
+                    );
+                }
+                if (containsAny(value, "magisk", "kernelsu", "apatch", "/su", "system/bin/su", "system/xbin/su")) {
+                    return new EventDescriptor(
+                            "root",
+                            "Root 文件 / 路径检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际检查了 Root 相关文件或路径"
+                    );
+                }
+                return new EventDescriptor(
+                        "file",
+                        "敏感文件 / proc 检测",
+                        DiagnosticStatus.DETECTED,
+                        "目标 App 实际访问了诊断规则命中的敏感路径"
+                );
+
+            case "exec":
+                if (containsAny(value, "which su", " magisk", "kernelsu", "apatch")) {
+                    return new EventDescriptor(
+                            "root",
+                            "Root 命令检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际执行了 Root 环境相关命令"
+                    );
+                }
+                if (value.contains("getprop")) {
+                    return new EventDescriptor(
+                            "environment",
+                            "Shell 系统属性检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际通过 shell 查询系统属性"
+                    );
+                }
+                if (value.contains("mount") || value.contains("getenforce")) {
+                    return new EventDescriptor(
+                            "environment",
+                            "Mount / SELinux 命令检测",
+                            DiagnosticStatus.DETECTED,
+                            "目标 App 实际执行了 mount 或 SELinux 环境查询"
+                    );
+                }
+                return new EventDescriptor(
+                        "command",
+                        "敏感命令检测",
+                        DiagnosticStatus.DETECTED,
+                        "目标 App 实际执行了诊断规则命中的命令"
+                );
+
+            case "permission":
+                return new EventDescriptor(
+                        "permission",
+                        "权限状态查询",
+                        DiagnosticStatus.DETECTED,
+                        "目标 App 实际查询了 YPower 正在观察的权限状态"
+                );
+
+            case "exit":
+                return new EventDescriptor(
+                        "exit",
+                        "应用主动退出调用",
+                        DiagnosticStatus.FAIL,
+                        "目标 App 实际调用了 System.exit / Runtime.halt / killProcess"
+                );
+
+            default:
+                return null;
+        }
     }
 
-    private static String hex(byte[] bytes) {
-        StringBuilder b = new StringBuilder();
-        for (byte value : bytes) b.append(String.format(Locale.ROOT, "%02X", value));
-        return b.toString();
+    private static int scoreFromEvidenceTime(DiagnosticFinding finding, long exitTs) {
+        int best = 0;
+        for (String evidence : finding.evidence) {
+            long ts = parseEvidenceTime(evidence, exitTs);
+            if (ts <= 0) continue;
+            long delta = exitTs - ts;
+            int score;
+            if (delta < 0) score = 0;
+            else if (delta <= 100) score = 90;
+            else if (delta <= 500) score = 75;
+            else if (delta <= 1500) score = 60;
+            else if (delta <= 5000) score = 40;
+            else score = 15;
+            best = Math.max(best, score);
+        }
+        return best;
+    }
+
+    private static long parseEvidenceTime(String evidence, long referenceDayMs) {
+        try {
+            String hhmmss = evidence.substring(0, 12);
+            SimpleDateFormat f = new SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT);
+            Date parsed = f.parse(hhmmss);
+            if (parsed == null) return 0;
+            java.util.Calendar ref = java.util.Calendar.getInstance();
+            ref.setTimeInMillis(referenceDayMs);
+            java.util.Calendar t = java.util.Calendar.getInstance();
+            t.setTime(parsed);
+            ref.set(java.util.Calendar.HOUR_OF_DAY, t.get(java.util.Calendar.HOUR_OF_DAY));
+            ref.set(java.util.Calendar.MINUTE, t.get(java.util.Calendar.MINUTE));
+            ref.set(java.util.Calendar.SECOND, t.get(java.util.Calendar.SECOND));
+            ref.set(java.util.Calendar.MILLISECOND, t.get(java.util.Calendar.MILLISECOND));
+            return ref.getTimeInMillis();
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private static boolean isAbnormalExit(int reason) {
+        return reason == ApplicationExitInfo.REASON_CRASH
+                || reason == ApplicationExitInfo.REASON_CRASH_NATIVE
+                || reason == ApplicationExitInfo.REASON_ANR
+                || reason == ApplicationExitInfo.REASON_LOW_MEMORY
+                || reason == ApplicationExitInfo.REASON_SIGNALED
+                || reason == ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE
+                || reason == ApplicationExitInfo.REASON_INITIALIZATION_FAILURE;
+    }
+
+    private static String exitTitle(int reason) {
+        switch (reason) {
+            case ApplicationExitInfo.REASON_CRASH:
+                return "Java / Runtime Crash";
+            case ApplicationExitInfo.REASON_CRASH_NATIVE:
+                return "Native Crash";
+            case ApplicationExitInfo.REASON_ANR:
+                return "ANR";
+            case ApplicationExitInfo.REASON_LOW_MEMORY:
+                return "低内存结束进程";
+            case ApplicationExitInfo.REASON_SIGNALED:
+                return "Signal 结束进程";
+            case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE:
+                return "资源使用异常结束";
+            case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE:
+                return "初始化失败";
+            case ApplicationExitInfo.REASON_EXIT_SELF:
+                return "应用自行退出";
+            default:
+                return "进程退出";
+        }
+    }
+
+    private static String exitSummary(ApplicationExitInfo info) {
+        return exitTitle(info.getReason())
+                + "；status=" + info.getStatus()
+                + (info.getDescription() == null ? "" : "；" + info.getDescription());
+    }
+
+    private static String toRaw(LogEventParser.TraceEvent event) {
+        return "[trace] ts=" + event.ts
+                + " package=" + event.packageName
+                + " type=" + event.type
+                + " source=" + event.source
+                + " value=" + event.value
+                + (event.stack == null || event.stack.isBlank() ? "" : " stack=" + event.stack);
+    }
+
+    private static long parseEpochSeconds(String line) {
+        try {
+            int space = line.indexOf(' ');
+            String first = space > 0 ? line.substring(0, space) : line;
+            return (long) Double.parseDouble(first);
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private static String formatTime(long timestamp) {
+        return new SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(new Date(timestamp));
+    }
+
+    private static boolean containsAny(String s, String... values) {
+        for (String value : values) if (s.contains(value)) return true;
+        return false;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static final class EventDescriptor {
+        final String category;
+        final String title;
+        final DiagnosticStatus status;
+        final String summary;
+
+        EventDescriptor(String category, String title, DiagnosticStatus status, String summary) {
+            this.category = category;
+            this.title = title;
+            this.status = status;
+            this.summary = summary;
+        }
     }
 }
