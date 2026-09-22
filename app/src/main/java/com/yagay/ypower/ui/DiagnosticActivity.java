@@ -102,7 +102,7 @@ public class DiagnosticActivity extends AppCompatActivity {
         viewSpinner.setAdapter(new ArrayAdapter<>(
                 this,
                 android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"简要", "详细", "建议", "原始"}
+                new String[]{"简要", "详细", "归因说明", "原始"}
         ));
         root.addView(viewSpinner);
 
