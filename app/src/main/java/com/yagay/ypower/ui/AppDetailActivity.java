@@ -13,8 +13,11 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.yagay.ypower.data.ProfileStore;
+import com.yagay.ypower.data.RecommendedAppRegistry;
 import com.yagay.ypower.model.AppProfile;
+import com.yagay.ypower.model.RecommendedAppPreset;
 import com.yagay.ypower.root.EnhancementEngine;
+import com.yagay.ypower.xposed.XposedBridgeManager;
 
 public class AppDetailActivity extends AppCompatActivity {
     private String packageName;
@@ -44,8 +47,36 @@ public class AppDetailActivity extends AppCompatActivity {
         CheckBox enabled = addCheck(root, "启用 YPower 增强", profile.enabled);
         enabled.setOnCheckedChangeListener((v, checked) -> {
             profile.enabled = checked;
-            save();
+            ProfileStore.get(this).setEnabled(packageName, checked);
         });
+
+        RecommendedAppPreset recommendedPreset = RecommendedAppRegistry.find(packageName);
+        if (recommendedPreset != null) {
+            root.addView(section("推荐配置"));
+
+            TextView recommendedInfo = new TextView(this);
+            recommendedInfo.setText("推荐原因：" + recommendedPreset.reason
+                    + "\n推荐 Hook：" + recommendedPreset.hookSummary()
+                    + "\n应用后会同时请求加入 LSPosed Scope。");
+            recommendedInfo.setPadding(0, dp(4), 0, dp(8));
+            root.addView(recommendedInfo);
+
+            Button applyRecommended = new Button(this);
+            applyRecommended.setText("应用推荐配置并同步 LSPosed");
+            applyRecommended.setOnClickListener(v -> {
+                profile = ProfileStore.get(this).applyRecommendedPreset(recommendedPreset);
+                EnhancementEngine.applyAsync(this, profile, result -> runOnUiThread(() -> {
+                    String scope = XposedBridgeManager.isReady()
+                            ? "LSPosed Scope 已请求同步"
+                            : "LSPosed 未连接；连接后会自动再次请求 Scope";
+                    Toast.makeText(this,
+                            "推荐配置已应用\n" + scope + "\n" + result.summary(),
+                            Toast.LENGTH_LONG).show();
+                    recreate();
+                }));
+            });
+            root.addView(applyRecommended);
+        }
 
         root.addView(section("无需目标 App Hook"));
         CheckBox doze = addCheck(root, "Doze 白名单", profile.dozeWhitelist);
@@ -107,6 +138,7 @@ public class AppDetailActivity extends AppCompatActivity {
 
     private void save() {
         ProfileStore.get(this).save(profile);
+        if (profile.enabled) XposedBridgeManager.requestScope(packageName);
     }
 
     private CheckBox addCheck(LinearLayout root, String text, boolean checked) {
