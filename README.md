@@ -188,3 +188,23 @@ Apache-2.0
 - `kill` / `tgkill`
 
 Native tracer 使用 caller filter 排除系统/APEX/vendor、ByteHook 自身和 YPower 自身库，减少噪声与递归风险。它只记录原始调用和返回结果，不隐藏 Root/Hook/调试器环境，也不修改检测结果。
+
+
+### RuleCatalog 与四态检测
+
+YPower 不再把所有运行时事件简化成 matched=true/false。每条规则统一由 DetectionRuleCatalog 定义，并使用四种状态：
+
+- HIT：检查真实返回了该规则定义的风险/异常结果。
+- CHECKED：目标 App 确实执行了检查，但当前观测还不能证明检查结果命中。
+- NOT_HIT：检查发生了，并且结果明确没有命中。
+- UNKNOWN：信息不足，无法判断结果。
+
+关键约束：
+
+- /proc/self/maps、/proc/self/status、mountinfo、/data/adb 仅因“成功访问”不会变成 HIT。
+- Runtime.exec/ProcessBuilder 只观察到命令被执行时记为 CHECKED；没有 stdout/exit code 前不宣称命中。
+- PackageManager 直接查询目标包并成功返回才算 HIT；NameNotFoundException 算 NOT_HIT。
+- getInstalledPackages/getInstalledApplications 会把返回列表中的每个敏感包拆成独立 PACKAGE_* 事件，不再只保留第一个。
+- Root 文件规则按最具体路径优先匹配，Magisk/KernelSU/APatch/su 不会被通用 /data/adb 规则吞掉。
+- FixRecommendationEngine 直接按 ruleId 查询 RuleCatalog，不再通过 root/su/magisk 等关键词猜建议。
+- NOT_HIT 与 UNKNOWN 不进入主要归因；CHECKED 只有在同线程或共享业务调用栈等结构化证据足够强时，才可能作为低可信候选。
