@@ -39,6 +39,11 @@ public final class LogEventParser {
                 e.result = o.optString("result", "");
                 e.matched = o.optBoolean("matched", false);
                 e.exception = o.optString("exception", "");
+                e.exceptionClass = o.optString("exceptionClass", "");
+                e.exceptionMessage = o.optString("exceptionMessage", "");
+                e.throwableId = o.optString("throwableId", "");
+                e.cause = o.optString("cause", "");
+                e.suppressedCount = o.optInt("suppressedCount", 0);
                 String hitState = o.optString("hitState", "");
                 e.hitState = hitState.isBlank()
                         ? DetectionRuleCatalog.evaluate(e.ruleId, e.matched, e.result, e.exception)
@@ -83,6 +88,11 @@ public final class LogEventParser {
         public boolean matched;
         public DetectionHitState hitState = DetectionHitState.UNKNOWN;
         public String exception;
+        public String exceptionClass;
+        public String exceptionMessage;
+        public String throwableId;
+        public String cause;
+        public int suppressedCount;
         public String source;
         public int pid;
         public int tid;
