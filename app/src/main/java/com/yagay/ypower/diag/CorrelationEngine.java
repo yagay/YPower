@@ -18,6 +18,8 @@ public final class CorrelationEngine {
             finding.attributionRank = 0;
             finding.sameThreadAsExit = false;
             finding.sharedExitFrames = 0;
+            finding.sameThreadAsFatal = false;
+            finding.sharedFatalFrames = 0;
 
             if (!"exit".equals(finding.category)) {
                 finding.correlationScore = score(report, finding);
@@ -43,6 +45,7 @@ public final class CorrelationEngine {
         for (DiagnosticFinding finding : report.findings) {
             if ("exit".equals(finding.category)) continue;
             if ("instrumentation".equals(finding.category)) continue;
+            if ("error".equals(finding.category)) continue;
             if (!eligibleForAttribution(finding)) continue;
             candidates.add(finding);
         }
@@ -82,6 +85,9 @@ public final class CorrelationEngine {
                 .append("，")
                 .append(strength(primary.correlationScore))
                 .append("）");
+        if (primary.sameThreadAsFatal || primary.sharedFatalFrames > 0) {
+            attribution.append("，并与 Java Fatal 存在异常传播关联");
+        }
 
         if (secondary != null) {
             attribution.append("；次要归因：")
@@ -167,7 +173,33 @@ public final class CorrelationEngine {
             score += 10;
         }
 
-        // 5) Repetition: only repeated HITs get strong weight.
+        // 5) Detection -> Java Fatal bridge. This distinguishes a check that merely
+        // happened near an exit from a check whose business stack flows into the fatal.
+        if (report.fatalExceptionTimestamp > 0
+                && finding.closestEventTimestamp > 0
+                && finding.closestEventTimestamp <= report.fatalExceptionTimestamp) {
+            long fatalDelta = report.fatalExceptionTimestamp - finding.closestEventTimestamp;
+
+            if (fatalDelta <= 100) score += 12;
+            else if (fatalDelta <= 500) score += 10;
+            else if (fatalDelta <= 1500) score += 6;
+            else if (fatalDelta <= 5000) score += 2;
+
+            if (report.fatalExceptionTid >= 0
+                    && finding.tid == report.fatalExceptionTid) {
+                finding.sameThreadAsFatal = true;
+                score += 8;
+            }
+
+            int fatalShared = sharedBusinessFrames(
+                    finding.stack,
+                    report.fatalExceptionStack
+            );
+            finding.sharedFatalFrames = fatalShared;
+            score += Math.min(12, fatalShared * 4);
+        }
+
+        // 6) Repetition: only repeated HITs get strong weight.
         if (finding.hitCount >= 3) score += 10;
         else if (finding.hitCount >= 2) score += 7;
         else if (finding.checkedCount >= 3) score += 2;
