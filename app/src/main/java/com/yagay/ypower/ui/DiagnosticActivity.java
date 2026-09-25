@@ -9,6 +9,8 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -19,7 +21,6 @@ import com.yagay.ypower.model.DiagnosticLevel;
 import com.yagay.ypower.model.DiagnosticReport;
 import com.yagay.ypower.xposed.XposedBridgeManager;
 
-import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -31,6 +32,20 @@ public class DiagnosticActivity extends AppCompatActivity {
     private TextView sessionStatus;
     private TextView output;
     private DiagnosticReport lastReport;
+
+    private final ActivityResultLauncher<String> createJsonDocument =
+            registerForActivityResult(
+                    new ActivityResultContracts.CreateDocument("application/json"),
+                    uri -> {
+                        if (uri == null || lastReport == null) return;
+                        try {
+                            ReportExporter.writeToUri(this, uri, lastReport);
+                            Toast.makeText(this, "JSON 已保存到所选位置", Toast.LENGTH_LONG).show();
+                        } catch (Exception e) {
+                            Toast.makeText(this, "导出失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    }
+            );
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -205,11 +220,35 @@ public class DiagnosticActivity extends AppCompatActivity {
             Toast.makeText(this, "请先完成一次运行时诊断", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        new AlertDialog.Builder(this)
+                .setTitle("导出 JSON")
+                .setItems(
+                        new String[]{"保存到下载文件夹", "选择保存位置"},
+                        (dialog, which) -> {
+                            if (which == 0) {
+                                exportToDownloads();
+                            } else {
+                                createJsonDocument.launch(
+                                        ReportExporter.suggestedFileName(lastReport)
+                                );
+                            }
+                        }
+                )
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void exportToDownloads() {
         try {
-            File file = ReportExporter.export(this, lastReport);
-            Toast.makeText(this, "已导出：" + file.getAbsolutePath(), Toast.LENGTH_LONG).show();
+            Uri uri = ReportExporter.exportToDownloads(this, lastReport);
+            Toast.makeText(
+                    this,
+                    "已保存到 下载/YPower/\n" + ReportExporter.suggestedFileName(lastReport),
+                    Toast.LENGTH_LONG
+            ).show();
         } catch (Exception e) {
-            Toast.makeText(this, "导出失败：" + e, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "导出失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
