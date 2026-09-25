@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added precise attribution events with stable Rule IDs, input, actual result, match state, exception, duration, PID/TID/thread, session ID and stack.
+- Split permission observation from permission simulation so diagnostic mode can record the real permission result without changing it.
+- Added Java debugger checks and deeper exit call stacks.
+- Replaced time-only attribution with combined timing, result-hit, same PID/TID, shared-stack, native-module and repeated-hit scoring.
+- Added optional Deep-mode ByteHook 1.1.2 native observer for access/fopen/stat/lstat/readlink/ptrace and native exit functions.
+- Added native caller SO+offset and compact native backtraces; native diagnostics remain observe-only.
+
 - Expanded attribution output with GitHub project rationale: why the app checks a signal, what the referenced project says, why YPower attributed it, and how to repair or investigate.
 - Renamed the Advice view to Attribution explanation.
 - Root/Hook/integrity guidance remains compatibility-oriented and does not provide concealment/bypass steps.
