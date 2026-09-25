@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added an observe-only exception propagation layer for Java fatal, Kotlin coroutines and RxJava2/3.
+- Added Thread.dispatchUncaughtException tracing without replacing the target app's UncaughtExceptionHandler.
+- Added observation of default/thread exception handler installation and RxJava global error handlers.
+- Exception events now record Throwable identity, class/message/cause/suppressed count, PID/TID/thread and Throwable stack.
+- Runtime reports correlate Coroutine/RxJava events to Java uncaught by identical Throwable identity or same-TID time proximity.
+- Security attribution can gain evidence from a detection→Java Fatal bridge, while error/instrumentation events remain excluded from primary security-cause selection.
+
 - Added Deep-mode Perfetto and simpleperf session capture synchronized with the runtime diagnostic window.
 - Perfetto starts before target launch and stops before YPower's cleanup force-stop; OEM-incompatible configs retry with a minimal scheduler/process configuration.
 - simpleperf uses --app launch waiting, exports perf.data plus a call-graph text report, and enriches matching native findings by DSO.
