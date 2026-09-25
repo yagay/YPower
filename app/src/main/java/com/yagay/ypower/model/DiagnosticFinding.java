@@ -21,6 +21,11 @@ public class DiagnosticFinding {
     // Precise runtime attribution metadata.
     public String ruleId = "";
     public int totalCount;
+    public int checkedCount;
+    public int hitCount;
+    public int notHitCount;
+    public int unknownCount;
+    // Legacy compatibility: mirrors hitCount.
     public int matchedCount;
     public long closestEventTimestamp;
     public long closestDeltaMs = Long.MAX_VALUE;
@@ -70,6 +75,10 @@ public class DiagnosticFinding {
             o.put("attributionRank", attributionRank);
             o.put("ruleId", ruleId);
             o.put("totalCount", totalCount);
+            o.put("checkedCount", checkedCount);
+            o.put("hitCount", hitCount);
+            o.put("notHitCount", notHitCount);
+            o.put("unknownCount", unknownCount);
             o.put("matchedCount", matchedCount);
             o.put("closestEventTimestamp", closestEventTimestamp);
             o.put("closestDeltaMs", closestDeltaMs == Long.MAX_VALUE ? -1 : closestDeltaMs);
