@@ -12,7 +12,7 @@ public final class RecommendedAppRegistry {
                 pkg, name, reason,
                 true, true, true, true,
                 false, false,
-                true, true, true, true, true
+                true, true, true, true, true, true, true
         );
     }
 
