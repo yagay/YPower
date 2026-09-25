@@ -158,6 +158,7 @@ public final class SystemTraceCollector {
                 String text = Files.readString(perfReport.toPath(), StandardCharsets.UTF_8);
                 report.simpleperfSummary = limitLines(text, 120);
                 report.raw.add("[simpleperf]\n" + report.simpleperfSummary);
+                enrichFindingsWithSimpleperf(report, text);
             } catch (Exception ignored) {
             }
         }
@@ -167,6 +168,37 @@ public final class SystemTraceCollector {
                     + perfetto.getAbsolutePath()
                     + " bytes=" + perfetto.length());
         }
+    }
+
+    private static void enrichFindingsWithSimpleperf(
+            DiagnosticReport report,
+            String simpleperfText
+    ) {
+        if (simpleperfText == null || simpleperfText.isBlank()) return;
+
+        for (com.yagay.ypower.model.DiagnosticFinding finding : report.findings) {
+            String module = moduleName(finding.source);
+            if (module.isBlank()) continue;
+
+            StringBuilder matches = new StringBuilder();
+            int count = 0;
+            for (String line : simpleperfText.split("\\R")) {
+                if (!line.contains(module)) continue;
+                if (count++ >= 6) break;
+                matches.append(line).append('\n');
+            }
+
+            if (matches.length() > 0) {
+                finding.evidence("simpleperf 调用图命中 " + module + ":\n"
+                        + matches.toString().trim());
+            }
+        }
+    }
+
+    private static String moduleName(String source) {
+        if (source == null || source.isBlank()) return "";
+        int plus = source.indexOf("+0x");
+        return plus > 0 ? source.substring(0, plus) : source;
     }
 
     private static String perfettoConfig(String packageName) {
