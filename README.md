@@ -19,7 +19,8 @@ YPower 是一个面向 Root / LSPosed 设备的 Android 应用增强与诊断工
   - Remote Preferences 保存每个包的配置。
   - 模拟目标应用进程看到的 `System App` 身份。
   - 模拟目标应用自身权限检查为 `GRANTED`（**仅改变应用侧检查，不等于获得 signature/privileged 权限**）。
-  - 敏感环境行为追踪：文件、包查询、系统属性、`Runtime.exec`、`ProcessBuilder`、`android.system.Os`、主动退出等。
+  - Java 运行时追踪：文件、包查询、权限查询、调试器状态、系统属性、`Runtime.exec`、`ProcessBuilder`、主动退出等。
+  - 深度诊断可选启用 ByteHook 1.1.2，只观察目标进程 native 侧的敏感路径、`ptrace` 与 `abort/exit/kill`，不修改原函数返回值。
 
 ### 推荐应用
 
@@ -62,7 +63,7 @@ YPower 是一个面向 Root / LSPosed 设备的 Android 应用增强与诊断工
 - 快速 / 标准 / 深度诊断。
 - 简要 / 详细 / 原始结果。
 - JSON 报告导出。
-- 自动归因：按本次运行事件与真实退出时间的接近程度计算关联度，而不是看到设备存在 Root 就直接判定 Root 导致闪退。
+- 自动归因：使用稳定 Rule ID，并综合 **时间距离、实际返回结果是否命中、PID/TID、共同调用栈、同一 native SO、同一会话重复命中** 计算关联度，而不是看到设备存在 Root 就直接判定 Root 导致闪退。
 
 ## 设计边界
 
@@ -107,10 +108,10 @@ gradle :app:assembleDebug
 
 ## 诊断状态含义
 
-- `通过`：当前采集未发现该类异常信号。
-- `未通过`：明确发现该类环境/异常信号；不代表它一定是闪退原因。
-- `警告`：存在值得关注的信息，但可能是合法/正常情况。
-- `未知`：没有足够数据、目标进程未运行，或判断发生在 Google/服务端一侧。
+- `检测到`：本次运行中目标 App 实际执行了该项检查。
+- `异常`：本次会话记录到了退出、崩溃、ANR 或明确异常终点。
+- 没有发生的检测项不会显示。
+- “检测到”不等于“导致退出”；只有归因引擎达到阈值时才标为主要/次要归因。
 
 ## 开源参考
 
@@ -146,3 +147,44 @@ Apache-2.0
 - 参考：标明对应的开源项目或 Android 机制。
 
 例如 Root 检测不会写成“检测到 Root，所以 Root 导致闪退”，而是说明 RootBeer 将 su、Root 管理应用、test-keys、危险属性等视作 Root 的“迹象”，且明确存在误报和局限；只有当同一运行会话中 Root 检测与真实退出稳定紧邻时，YPower 才会把它提升为归因候选。
+
+
+### 精准归因数据模型
+
+每个运行时检测事件会记录：
+
+- `ruleId`：稳定规则 ID，例如 `ROOT_FILE_SU`、`HOOK_PROC_MAPS`、`PROP_DEBUGGABLE`、`NATIVE_PTRACE`。
+- 输入参数：实际路径、包名、property key、命令或权限名。
+- 返回结果：例如 `File.exists=true`、`access=0`、property 实际值、权限查询结果。
+- 是否明确命中：区分“应用做了检查”和“检查结果真的命中了可疑状态”。
+- 异常、耗时、PID、TID、线程名、进程名、session ID。
+- Java 调用栈；主动退出点最多记录 32 帧。
+- 深度诊断中的 native 调用者 SO + offset 和精简 native backtrace。
+
+归因分数由以下证据共同组成：
+
+- 离真实退出的时间距离。
+- 检测返回结果是否明确命中。
+- 与退出是否同 PID/TID。
+- 检测栈和退出栈是否存在共同业务帧。
+- Native 检测与退出是否来自同一 SO。
+- 同一诊断会话中是否重复命中。
+- 调用是否抛出真实异常。
+
+只有存在真实退出/崩溃，而且分数达到阈值时，才会产生主要/次要归因。
+
+### Native 深度诊断
+
+深度模式才会启用 ByteHook。当前观察：
+
+- `access`
+- `fopen`
+- `stat`
+- `lstat`
+- `readlink`
+- `ptrace`
+- `abort`
+- `exit` / `_exit`
+- `kill` / `tgkill`
+
+Native tracer 使用 caller filter 排除系统/APEX/vendor、ByteHook 自身和 YPower 自身库，减少噪声与递归风险。它只记录原始调用和返回结果，不隐藏 Root/Hook/调试器环境，也不修改检测结果。
