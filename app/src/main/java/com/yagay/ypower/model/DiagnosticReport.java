@@ -35,6 +35,7 @@ public class DiagnosticReport {
     public long simpleperfDataBytes;
     public String simpleperfReportPath = "";
     public String simpleperfSummary = "";
+    public final List<String> linkerMappings = new ArrayList<>();
 
     public final List<DiagnosticFinding> findings = new ArrayList<>();
     public final List<String> raw = new ArrayList<>();
@@ -147,6 +148,13 @@ public class DiagnosticReport {
             }
             b.append('\n');
         }
+        if (!linkerMappings.isEmpty()) {
+            b.append("JNI / Linker 映射：\n");
+            for (String mapping : linkerMappings) {
+                b.append("• ").append(mapping).append('\n');
+            }
+            b.append('\n');
+        }
         if (!simpleperfSummary.isBlank()) {
             b.append("simpleperf Native 调用图摘要：\n")
                     .append(simpleperfSummary)
@@ -225,6 +233,9 @@ public class DiagnosticReport {
             o.put("simpleperfDataBytes", simpleperfDataBytes);
             o.put("simpleperfReportPath", simpleperfReportPath);
             o.put("simpleperfSummary", simpleperfSummary);
+            JSONArray lm = new JSONArray();
+            for (String mapping : linkerMappings) lm.put(mapping);
+            o.put("linkerMappings", lm);
             JSONArray fs = new JSONArray();
             for (DiagnosticFinding f : findings) fs.put(f.toJson());
             o.put("findings", fs);
