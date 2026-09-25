@@ -97,6 +97,9 @@ public class AppDetailActivity extends AppCompatActivity {
         CheckBox permissions = addCheck(root, "权限状态查询追踪（只记录真实结果）", profile.tracePermissions);
         CheckBox debugger = addCheck(root, "调试器状态检测追踪", profile.traceDebugger);
         CheckBox exceptions = addCheck(root, "异常传播追踪（Java / Coroutine / RxJava，只观察）", profile.traceExceptions);
+        CheckBox securityApis = addCheck(root,
+                "现代安全 API 追踪（Attestation / Play Integrity / 自完整性，只观察）",
+                profile.traceSecurityApis);
         CheckBox nativeTrace = addCheck(root, "Native 深度追踪（ByteHook，风险更高）", profile.traceNative);
         CheckBox syscallTrace = addCheck(root,
                 "Raw syscall 实验追踪（strace/ptrace；可能触发反调试，默认关闭）",
@@ -126,6 +129,7 @@ public class AppDetailActivity extends AppCompatActivity {
             profile.tracePermissions = permissions.isChecked();
             profile.traceDebugger = debugger.isChecked();
             profile.traceExceptions = exceptions.isChecked();
+            profile.traceSecurityApis = securityApis.isChecked();
             profile.traceNative = nativeTrace.isChecked();
             profile.traceSyscalls = syscallTrace.isChecked();
             profile.traceStacks = stacks.isChecked();
