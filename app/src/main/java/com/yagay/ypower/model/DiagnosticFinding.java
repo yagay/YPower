@@ -37,10 +37,17 @@ public class DiagnosticFinding {
     public String input = "";
     public String result = "";
     public String exception = "";
+    public String exceptionClass = "";
+    public String exceptionMessage = "";
+    public String throwableId = "";
+    public String cause = "";
+    public int suppressedCount;
     public long durationNs;
     public String stack = "";
     public int sharedExitFrames;
     public boolean sameThreadAsExit;
+    public int sharedFatalFrames;
+    public boolean sameThreadAsFatal;
     public final List<String> evidence = new ArrayList<>();
     public final List<FixRecommendation> recommendations = new ArrayList<>();
 
@@ -91,10 +98,17 @@ public class DiagnosticFinding {
             o.put("input", input);
             o.put("result", result);
             o.put("exception", exception);
+            o.put("exceptionClass", exceptionClass);
+            o.put("exceptionMessage", exceptionMessage);
+            o.put("throwableId", throwableId);
+            o.put("cause", cause);
+            o.put("suppressedCount", suppressedCount);
             o.put("durationNs", durationNs);
             o.put("stack", stack);
             o.put("sharedExitFrames", sharedExitFrames);
             o.put("sameThreadAsExit", sameThreadAsExit);
+            o.put("sharedFatalFrames", sharedFatalFrames);
+            o.put("sameThreadAsFatal", sameThreadAsFatal);
             JSONArray arr = new JSONArray();
             for (String e : evidence) arr.put(e);
             o.put("evidence", arr);
