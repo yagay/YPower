@@ -23,6 +23,7 @@
 #include <sys/mman.h>
 #include <sys/system_properties.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
 #include <sys/xattr.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -165,6 +166,17 @@ static const char *rule_for_path(const char *path) {
     std::string s(path);
 
     // Most-specific paths first. Do not let generic /data/adb swallow Magisk/KSU/APatch.
+    if (!g_package.empty() && s.find(g_package) != std::string::npos) {
+        if (s.size() >= 4 && s.rfind(".apk") == s.size() - 4) return "SELF_APK_READ";
+        if (s.find("classes") != std::string::npos && s.find(".dex") != std::string::npos) {
+            return "SELF_DEX_READ";
+        }
+        if (s.find("/lib/") != std::string::npos
+                && s.size() >= 3 && s.rfind(".so") == s.size() - 3) {
+            return "SELF_SO_READ";
+        }
+    }
+
     if (s.find("magisk") != std::string::npos) return "ROOT_FILE_MAGISK";
     if (s.find("kernelsu") != std::string::npos || s.find("/data/adb/ksu") != std::string::npos) {
         return "ROOT_FILE_KERNELSU";
@@ -189,6 +201,9 @@ static const char *rule_for_path(const char *path) {
     if (s == "/proc/sys/kernel/osrelease") return "KERNEL_OSRELEASE_QUERY";
     if (s == "/proc/sys/kernel/version") return "KERNEL_SYS_VERSION_QUERY";
     if (s == "/proc/sys/kernel/kptr_restrict") return "KERNEL_KPTR_QUERY";
+    if (s == "/sys/fs/selinux/access") return "SELINUX_ACCESS_PROBE";
+    if (s == "/sys/fs/selinux/status") return "SELINUX_STATUS_SEQNO";
+    if (s == "/sys/fs/selinux/policyload") return "SELINUX_POLICYLOAD_QUERY";
     if (s == "/sys/fs/selinux/enforce") return "SELINUX_ENFORCE_READ";
     if (s == "/proc/self/attr/current") return "SELINUX_CONTEXT_READ";
     if (s.rfind("/sys/fs/selinux/", 0) == 0) return "SELINUX_POLICY_READ";
@@ -812,6 +827,117 @@ static ssize_t proxy_readlink(const char *pathname, char *buf, size_t bufsiz) {
     return ret;
 }
 
+static const char *rule_for_ptrace_request(int request) {
+    switch (request) {
+        case PTRACE_ATTACH: return "PTRACE_ATTACH_QUERY";
+        case PTRACE_GETEVENTMSG: return "PTRACE_EVENTMSG_QUERY";
+        case PTRACE_SYSCALL: return "PTRACE_SYSCALL_QUERY";
+        case PTRACE_DETACH: return "PTRACE_DETACH_QUERY";
+        default: return "NATIVE_PTRACE";
+    }
+}
+
+static pid_t proxy_fork(void) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    pid_t ret = BYTEHOOK_CALL_PREV(proxy_fork);
+    int saved_errno = errno;
+
+    emit_event(
+            "native_process",
+            "PROCESS_FORK_QUERY",
+            "fork()",
+            std::to_string(ret),
+            false,
+            ret < 0 ? errno_text(saved_errno) : "",
+            source,
+            now_ns_monotonic() - start
+    );
+    errno = saved_errno;
+    return ret;
+}
+
+static pid_t proxy_vfork(void) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    pid_t ret = BYTEHOOK_CALL_PREV(proxy_vfork);
+    int saved_errno = errno;
+
+    emit_event(
+            "native_process",
+            "PROCESS_FORK_QUERY",
+            "vfork()",
+            std::to_string(ret),
+            false,
+            ret < 0 ? errno_text(saved_errno) : "",
+            source,
+            now_ns_monotonic() - start
+    );
+    errno = saved_errno;
+    return ret;
+}
+
+static pid_t proxy_waitpid(pid_t pid, int *status, int options) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    pid_t ret = BYTEHOOK_CALL_PREV(proxy_waitpid, pid, status, options);
+    int saved_errno = errno;
+
+    std::string result = std::to_string(ret);
+    if (ret > 0 && status != nullptr) {
+        result += " status=" + std::to_string(*status);
+    }
+
+    emit_event(
+            "native_process",
+            "PROCESS_WAITPID_QUERY",
+            "waitpid pid=" + std::to_string(pid) + " options=" + std::to_string(options),
+            result,
+            false,
+            ret < 0 ? errno_text(saved_errno) : "",
+            source,
+            now_ns_monotonic() - start
+    );
+    errno = saved_errno;
+    return ret;
+}
+
+static int proxy_selinux_check_access(
+        const char *scon,
+        const char *tcon,
+        const char *tclass,
+        const char *perm,
+        void *aux) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    int ret = BYTEHOOK_CALL_PREV(
+            proxy_selinux_check_access,
+            scon, tcon, tclass, perm, aux
+    );
+    int saved_errno = errno;
+
+    emit_event(
+            "native_selinux",
+            "SELINUX_ACCESS_PROBE",
+            std::string("scon=") + (scon == nullptr ? "" : scon)
+                    + " tcon=" + (tcon == nullptr ? "" : tcon)
+                    + " class=" + (tclass == nullptr ? "" : tclass)
+                    + " perm=" + (perm == nullptr ? "" : perm),
+            std::to_string(ret),
+            false,
+            ret < 0 ? errno_text(saved_errno) : "",
+            source,
+            now_ns_monotonic() - start
+    );
+
+    errno = saved_errno;
+    return ret;
+}
+
 static long proxy_ptrace(int request, pid_t pid, void *addr, void *data) {
     BYTEHOOK_STACK_SCOPE();
     int64_t start = now_ns_monotonic();
@@ -820,13 +946,19 @@ static long proxy_ptrace(int request, pid_t pid, void *addr, void *data) {
     long ret = BYTEHOOK_CALL_PREV(proxy_ptrace, request, pid, addr, data);
     int saved_errno = errno;
 
-    bool matched = ret == -1 && saved_errno == EPERM;
+    std::string result = std::to_string(ret);
+    if (request == PTRACE_GETEVENTMSG && ret == 0 && data != nullptr) {
+        unsigned long event_msg = 0;
+        memcpy(&event_msg, data, sizeof(event_msg));
+        result += " eventMsg=" + std::to_string(event_msg);
+    }
+
     emit_event(
             "native_debugger",
-            "NATIVE_PTRACE",
+            rule_for_ptrace_request(request),
             "request=" + std::to_string(request) + " pid=" + std::to_string(pid),
-            std::to_string(ret),
-            matched,
+            result,
+            false,
             ret == -1 ? errno_text(saved_errno) : "",
             source,
             now_ns_monotonic() - start
@@ -960,6 +1092,9 @@ static void install_hooks_locked() {
     add_hook("lstat", reinterpret_cast<void *>(proxy_lstat));
     add_hook("readlink", reinterpret_cast<void *>(proxy_readlink));
     add_hook("ptrace", reinterpret_cast<void *>(proxy_ptrace));
+    add_hook("fork", reinterpret_cast<void *>(proxy_fork));
+    add_hook("vfork", reinterpret_cast<void *>(proxy_vfork));
+    add_hook("waitpid", reinterpret_cast<void *>(proxy_waitpid));
     add_hook("abort", reinterpret_cast<void *>(proxy_abort));
     add_hook("exit", reinterpret_cast<void *>(proxy_exit));
     add_hook("_exit", reinterpret_cast<void *>(proxy__exit));
@@ -972,6 +1107,8 @@ static void install_hooks_locked() {
     add_hook("sigaction", reinterpret_cast<void *>(proxy_sigaction));
     add_hook("getauxval", reinterpret_cast<void *>(proxy_getauxval));
     add_hook("mprotect", reinterpret_cast<void *>(proxy_mprotect));
+    add_hook_for_library("libselinux.so", "selinux_check_access",
+            reinterpret_cast<void *>(proxy_selinux_check_access));
     add_hook_for_library("libdl.so", "dlsym", reinterpret_cast<void *>(proxy_dlsym));
     add_hook_for_library("libdl.so", "dl_iterate_phdr", reinterpret_cast<void *>(proxy_dl_iterate_phdr));
     add_hook("dl_iterate_phdr", reinterpret_cast<void *>(proxy_dl_iterate_phdr));
