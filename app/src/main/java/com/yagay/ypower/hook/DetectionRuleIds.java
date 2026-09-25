@@ -40,6 +40,10 @@ public final class DetectionRuleIds {
     public static final String EXIT_SYSTEM = "EXIT_SYSTEM";
     public static final String EXIT_HALT = "EXIT_HALT";
     public static final String EXIT_KILL_PROCESS = "EXIT_KILL_PROCESS";
+    public static final String NATIVE_PTRACE = "NATIVE_PTRACE";
+    public static final String EXIT_NATIVE_ABORT = "EXIT_NATIVE_ABORT";
+    public static final String EXIT_NATIVE_EXIT = "EXIT_NATIVE_EXIT";
+    public static final String EXIT_NATIVE_KILL = "EXIT_NATIVE_KILL";
 
     public static String forPath(String value) {
         String s = lower(value);
