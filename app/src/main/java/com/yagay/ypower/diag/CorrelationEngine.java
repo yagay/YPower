@@ -127,6 +127,12 @@ public final class CorrelationEngine {
         finding.sharedExitFrames = shared;
         score += Math.min(20, shared * 5);
 
+        // Native events often do not have a Java stack. If the detection and exit originate
+        // from the same native module, treat that as additional structural evidence.
+        if (sameNativeModule(finding.source, report.exitSource)) {
+            score += 10;
+        }
+
         // 5) Repetition inside the same measured session: max 10.
         if (finding.matchedCount >= 3) score += 10;
         else if (finding.matchedCount >= 2) score += 7;
@@ -187,6 +193,18 @@ public final class CorrelationEngine {
                 || frame.startsWith("kotlin.")
                 || frame.startsWith("dalvik.")
                 || frame.startsWith("libcore.");
+    }
+
+    private static boolean sameNativeModule(String a, String b) {
+        String left = moduleName(a);
+        String right = moduleName(b);
+        return !left.isBlank() && left.equals(right);
+    }
+
+    private static String moduleName(String source) {
+        if (source == null || source.isBlank()) return "";
+        int plus = source.indexOf("+0x");
+        return plus > 0 ? source.substring(0, plus) : source;
     }
 
     private static String strength(int score) {
