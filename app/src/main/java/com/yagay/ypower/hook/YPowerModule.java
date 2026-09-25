@@ -72,6 +72,16 @@ public final class YPowerModule extends XposedModule {
                 Log.w(TAG, "provider " + provider.id() + " failed", t);
             }
         }
+
+        if (profile.traceNative) {
+            boolean enabled = NativeTraceBridge.enable(pkg, profile.diagnosticSessionId);
+            traceMeta(
+                    profile,
+                    "provider",
+                    "native-bytehook=" + (enabled ? "enabled" : "unavailable"),
+                    "NativeTraceBridge"
+            );
+        }
     }
 
     private AppProfile loadProfile(String packageName) {
