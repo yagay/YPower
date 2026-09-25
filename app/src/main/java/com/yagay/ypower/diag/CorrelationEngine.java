@@ -1,5 +1,6 @@
 package com.yagay.ypower.diag;
 
+import com.yagay.ypower.model.DetectionHitState;
 import com.yagay.ypower.model.DiagnosticFinding;
 import com.yagay.ypower.model.DiagnosticReport;
 
@@ -40,9 +41,9 @@ public final class CorrelationEngine {
 
         List<DiagnosticFinding> candidates = new ArrayList<>();
         for (DiagnosticFinding finding : report.findings) {
-            if (!"exit".equals(finding.category) && finding.correlationScore > 0) {
-                candidates.add(finding);
-            }
+            if ("exit".equals(finding.category)) continue;
+            if (!eligibleForAttribution(finding)) continue;
+            candidates.add(finding);
         }
 
         candidates.sort(
@@ -50,9 +51,9 @@ public final class CorrelationEngine {
                         .reversed()
         );
 
-        if (candidates.isEmpty() || candidates.get(0).correlationScore < 45) {
+        if (candidates.isEmpty()) {
             report.attribution =
-                    "记录到了退出，但当前证据不足以确认是哪一项检测触发。";
+                    "记录到了退出，但没有规则达到归因阈值；NOT_HIT/UNKNOWN 不作为退出原因。";
             return;
         }
 
@@ -64,7 +65,7 @@ public final class CorrelationEngine {
             DiagnosticFinding second = candidates.get(1);
             int gap = primary.correlationScore - second.correlationScore;
 
-            if (second.correlationScore >= 60 && gap <= 15) {
+            if (eligibleAsSecondary(second) && gap <= 15) {
                 second.attributionRank = 2;
                 secondary = second;
             }
@@ -76,6 +77,8 @@ public final class CorrelationEngine {
                 .append("（")
                 .append(primary.correlationScore)
                 .append("/100，")
+                .append(primary.representativeState)
+                .append("，")
                 .append(strength(primary.correlationScore))
                 .append("）");
 
@@ -84,10 +87,34 @@ public final class CorrelationEngine {
                     .append(secondary.title)
                     .append("（")
                     .append(secondary.correlationScore)
-                    .append("/100）");
+                    .append("/100，")
+                    .append(secondary.representativeState)
+                    .append("）");
         }
 
         report.attribution = attribution.toString();
+    }
+
+    private static boolean eligibleForAttribution(DiagnosticFinding f) {
+        if (f.representativeState == DetectionHitState.HIT) {
+            return f.correlationScore >= 45;
+        }
+        if (f.representativeState == DetectionHitState.CHECKED) {
+            // A CHECKED-only rule never proves a positive security hit. Require stronger
+            // structural evidence before it can be shown as a causal candidate.
+            return f.correlationScore >= 60
+                    && (f.sameThreadAsExit || f.sharedExitFrames > 0
+                    || sameNativeModule(f.source, ""));
+        }
+        return false;
+    }
+
+    private static boolean eligibleAsSecondary(DiagnosticFinding f) {
+        if (f.representativeState == DetectionHitState.HIT) {
+            return f.correlationScore >= 60;
+        }
+        return f.representativeState == DetectionHitState.CHECKED
+                && f.correlationScore >= 65;
     }
 
     private static int score(DiagnosticReport report, DiagnosticFinding finding) {
@@ -103,16 +130,24 @@ public final class CorrelationEngine {
             else if (delta <= 15000) score += 6;
         }
 
-        // 2) The check actually returned a suspicious/positive result: max 20.
-        if (finding.matchedCount > 0) {
-            score += 20;
-        } else if (finding.totalCount > 0) {
-            // The application definitely performed the check, but YPower did not observe a
-            // positive result. Keep it as weak evidence rather than treating it as a hit.
-            score += 4;
+        // 2) Rule state: a real HIT matters; CHECKED is only weak evidence.
+        switch (finding.representativeState) {
+            case HIT:
+                score += 25;
+                break;
+            case CHECKED:
+                score += 4;
+                break;
+            case NOT_HIT:
+                // Explicitly negative result: do not reward proximity or stack coincidence
+                // enough to turn it into a cause.
+                break;
+            case UNKNOWN:
+            default:
+                break;
         }
 
-        // 3) Same PID/TID as the exact Java-side exit: max 15.
+        // 3) Same PID/TID as exact exit: max 15.
         if (report.exitPid >= 0 && finding.pid == report.exitPid) {
             score += 5;
         }
@@ -127,20 +162,25 @@ public final class CorrelationEngine {
         finding.sharedExitFrames = shared;
         score += Math.min(20, shared * 5);
 
-        // Native events often do not have a Java stack. If the detection and exit originate
-        // from the same native module, treat that as additional structural evidence.
+        // Native events often have SO+offset instead of Java classes.
         if (sameNativeModule(finding.source, report.exitSource)) {
             score += 10;
         }
 
-        // 5) Repetition inside the same measured session: max 10.
-        if (finding.matchedCount >= 3) score += 10;
-        else if (finding.matchedCount >= 2) score += 7;
-        else if (finding.totalCount >= 3) score += 4;
+        // 5) Repetition: only repeated HITs get strong weight.
+        if (finding.hitCount >= 3) score += 10;
+        else if (finding.hitCount >= 2) score += 7;
+        else if (finding.checkedCount >= 3) score += 2;
 
-        // 6) An actual exception from the observed API call is additional evidence.
-        if (finding.exception != null && !finding.exception.isBlank()) {
-            score += 8;
+        // Cap non-positive states so they cannot masquerade as confirmed causes.
+        if (finding.representativeState == DetectionHitState.NOT_HIT) {
+            return Math.min(25, score);
+        }
+        if (finding.representativeState == DetectionHitState.UNKNOWN) {
+            return Math.min(35, score);
+        }
+        if (finding.representativeState == DetectionHitState.CHECKED) {
+            return Math.min(70, score);
         }
 
         return Math.min(100, score);
@@ -210,7 +250,7 @@ public final class CorrelationEngine {
     private static String strength(int score) {
         if (score >= 85) return "高可信";
         if (score >= 70) return "较强相关";
-        if (score >= 55) return "中等相关";
+        if (score >= 60) return "中等相关";
         return "可能相关";
     }
 }
