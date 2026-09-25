@@ -174,6 +174,11 @@ public class DiagnosticActivity extends AppCompatActivity {
                     + "\nsimpleperf："
                     + (state.systemTrace.simpleperfStarted ? "已启动" :
                     state.systemTrace.simpleperfAvailable ? "启动失败" : "设备不可用");
+            if (state.systemTrace.syscallStarted || state.systemTrace.syscallAvailable) {
+                systemTrace += "\nRaw syscall（实验）："
+                        + (state.systemTrace.syscallStarted ? "已启动；可能改变 TracerPid/反调试行为"
+                        : "启动失败");
+            }
         }
 
         output.setText("诊断会话已开始。\n"
