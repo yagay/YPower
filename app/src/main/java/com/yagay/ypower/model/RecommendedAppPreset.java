@@ -20,6 +20,7 @@ public final class RecommendedAppPreset {
     public final boolean tracePermissions;
     public final boolean traceDebugger;
     public final boolean traceExceptions;
+    public final boolean traceSecurityApis;
     public final boolean traceStacks;
 
     public RecommendedAppPreset(
@@ -39,6 +40,7 @@ public final class RecommendedAppPreset {
             boolean tracePermissions,
             boolean traceDebugger,
             boolean traceExceptions,
+            boolean traceSecurityApis,
             boolean traceStacks
     ) {
         this.packageName = packageName;
@@ -57,6 +59,7 @@ public final class RecommendedAppPreset {
         this.tracePermissions = tracePermissions;
         this.traceDebugger = traceDebugger;
         this.traceExceptions = traceExceptions;
+        this.traceSecurityApis = traceSecurityApis;
         this.traceStacks = traceStacks;
     }
 
@@ -69,6 +72,7 @@ public final class RecommendedAppPreset {
         if (tracePermissions) append(b, "权限查询");
         if (traceDebugger) append(b, "调试器检测");
         if (traceExceptions) append(b, "异常传播");
+        if (traceSecurityApis) append(b, "现代安全API");
         if (simulateSystemApp) append(b, "系统身份模拟");
         if (simulatePermissions) append(b, "权限状态模拟");
         if (traceStacks) append(b, "短调用栈");
