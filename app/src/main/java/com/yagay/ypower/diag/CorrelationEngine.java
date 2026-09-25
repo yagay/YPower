@@ -103,8 +103,7 @@ public final class CorrelationEngine {
             // A CHECKED-only rule never proves a positive security hit. Require stronger
             // structural evidence before it can be shown as a causal candidate.
             return f.correlationScore >= 60
-                    && (f.sameThreadAsExit || f.sharedExitFrames > 0
-                    || sameNativeModule(f.source, ""));
+                    && (f.sameThreadAsExit || f.sharedExitFrames > 0);
         }
         return false;
     }
