@@ -52,6 +52,21 @@ public final class SystemTraceCollector {
                             + " -o " + ShellEscaper.q(state.perfettoTempPath)
                             + " 2>&1"
             );
+
+            if (!start.ok()) {
+                // OEM builds sometimes expose fewer atrace categories. Retry with a minimal
+                // scheduler/process config instead of losing Perfetto entirely.
+                String fallback = minimalPerfettoConfig();
+                RootShell.exec("printf %s " + ShellEscaper.q(fallback)
+                        + " > " + ShellEscaper.q(state.perfettoConfigPath));
+                start = RootShell.exec(
+                        "perfetto --txt -c " + ShellEscaper.q(state.perfettoConfigPath)
+                                + " --detach=" + ShellEscaper.q(state.perfettoKey)
+                                + " -o " + ShellEscaper.q(state.perfettoTempPath)
+                                + " 2>&1"
+                );
+            }
+
             state.perfettoStarted = start.ok();
             state.perfettoStartMessage = start.text();
         }
@@ -168,6 +183,20 @@ public final class SystemTraceCollector {
                     + perfetto.getAbsolutePath()
                     + " bytes=" + perfetto.length());
         }
+    }
+
+    private static String minimalPerfettoConfig() {
+        return "duration_ms: " + (MAX_DURATION_SEC * 1000L) + "\n"
+                + "write_into_file: true\n"
+                + "file_write_period_ms: 1000\n"
+                + "buffers { size_kb: 16384 fill_policy: RING_BUFFER }\n"
+                + "data_sources { config { name: \"linux.ftrace\" ftrace_config {\n"
+                + "  ftrace_events: \"sched/sched_switch\"\n"
+                + "  ftrace_events: \"sched/sched_waking\"\n"
+                + "  ftrace_events: \"sched/sched_process_exit\"\n"
+                + "} } }\n"
+                + "data_sources { config { name: \"linux.process_stats\" "
+                + "process_stats_config { scan_all_processes_on_start: true proc_stats_poll_ms: 1000 } } }\n";
     }
 
     private static void enrichFindingsWithSimpleperf(
