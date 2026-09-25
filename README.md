@@ -208,3 +208,14 @@ YPower 不再把所有运行时事件简化成 matched=true/false。每条规则
 - Root 文件规则按最具体路径优先匹配，Magisk/KernelSU/APatch/su 不会被通用 /data/adb 规则吞掉。
 - FixRecommendationEngine 直接按 ruleId 查询 RuleCatalog，不再通过 root/su/magisk 等关键词猜建议。
 - NOT_HIT 与 UNKNOWN 不进入主要归因；CHECKED 只有在同线程或共享业务调用栈等结构化证据足够强时，才可能作为低可信候选。
+
+
+### 深度系统监控
+
+深度诊断现在额外启用三类监控：
+
+- Perfetto：从目标 App 启动前开始记录调度、进程生命周期、am/wm/pm/dalvik/binder_driver 等系统时间线；结束诊断时先停止采集，再由 YPower 自己 force-stop，避免把 YPower 的停止动作混入测量窗口。部分 OEM 不支持完整 atrace 配置时会自动退化为 scheduler + process stats 最小配置。
+- simpleperf：使用 --app 等待目标进程启动并记录 native call graph；结束后生成 perf.data 和文本报告。YPower 会把命中同一个 SO 的采样片段附到对应 native finding。
+- JNI / Linker mapping：Java 侧记录 System.load/System.loadLibrary 调用栈，Native 侧记录 ByteHook dlopen callback 和筛选后的 dlsym（JNI_OnLoad、Java_*、RegisterNatives 及 root/debug/security/integrity/check 等相关符号），并按时间与 TID 建立 Java→SO→symbol 映射。
+
+这些数据属于诊断证据，不修改目标 App 返回值，也不会把单纯的库加载事件当成安全风险归因。
