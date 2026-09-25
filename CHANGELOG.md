@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added AndroidKeyStore/attestation tracing for challenge, StrongBox, certificate chain and key security-level queries.
+- Added classic and standard Play Integrity request/token observation without storing token contents.
+- Added DirtySepolicy-oriented SELinux access/status/policyload and selinux_check_access tracing.
+- Added fork/vfork/waitpid and ptrace request classification for DetectZygisk-style event-message flows.
+- Added self-signing/APK/DEX/SO integrity observation plus context-filtered MessageDigest tracing.
+- Added synthesized ATTESTATION, PLAY_INTEGRITY, DIRTY_SEPOLICY, ZYGISK_PTRACE and SELF_INTEGRITY flows; all composite flows remain CHECKED unless separate evidence proves a hit.
+
 - Added DuckDetector gap-analysis coverage for native system properties, kernel/proc identity, SELinux, memory/FD/smaps and linker/signal/vDSO inspection behavior.
 - Added ByteHook observation for open/openat/opendir, __system_property_get, uname, SELinux xattrs, sigaction, getauxval(AT_SYSINFO_EHDR), executable mprotect and dl_iterate_phdr.
 - Added stable Rule IDs for kernel, SELinux and memory inspection events; path/file checks remain CHECKED unless a concrete result proves a hit.
