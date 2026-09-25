@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added Deep-mode Perfetto and simpleperf session capture synchronized with the runtime diagnostic window.
+- Perfetto starts before target launch and stops before YPower's cleanup force-stop; OEM-incompatible configs retry with a minimal scheduler/process configuration.
+- simpleperf uses --app launch waiting, exports perf.data plus a call-graph text report, and enriches matching native findings by DSO.
+- Added Java System.load/System.loadLibrary stacks, ByteHook dlopen callbacks and filtered dlsym tracing for JNI/linker mapping.
+- Added Java→SO→symbol mapping output and excluded instrumentation-only events from causal attribution.
+
 - Added centralized DetectionRuleCatalog and a four-state detection model: CHECKED/HIT/NOT_HIT/UNKNOWN.
 - Fixed Java and native path matching so specific Magisk/KernelSU/APatch/su rules win before generic /data/adb.
 - Package enumeration now emits one event per sensitive returned package instead of keeping only the first.
