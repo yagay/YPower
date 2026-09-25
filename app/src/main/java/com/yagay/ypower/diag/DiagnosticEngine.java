@@ -9,6 +9,7 @@ import com.yagay.ypower.model.DiagnosticFinding;
 import com.yagay.ypower.model.DiagnosticLevel;
 import com.yagay.ypower.model.DiagnosticReport;
 import com.yagay.ypower.model.DiagnosticStatus;
+import com.yagay.ypower.model.DetectionHitState;
 import com.yagay.ypower.root.RootShell;
 import com.yagay.ypower.util.ShellEscaper;
 
@@ -222,7 +223,22 @@ public final class DiagnosticEngine {
             }
 
             finding.totalCount++;
-            if (event.matched) finding.matchedCount++;
+            switch (event.hitState) {
+                case HIT:
+                    finding.hitCount++;
+                    finding.matchedCount = finding.hitCount;
+                    break;
+                case CHECKED:
+                    finding.checkedCount++;
+                    break;
+                case NOT_HIT:
+                    finding.notHitCount++;
+                    break;
+                case UNKNOWN:
+                default:
+                    finding.unknownCount++;
+                    break;
+            }
 
             int evidenceLimit = report.level == DiagnosticLevel.QUICK
                     ? 6
@@ -243,10 +259,11 @@ public final class DiagnosticEngine {
 
         for (DiagnosticFinding finding : findings.values()) {
             finding.summary = finding.summary
-                    + "；本次运行触发 " + finding.totalCount + " 次"
-                    + (finding.matchedCount > 0
-                    ? "，其中明确命中 " + finding.matchedCount + " 次"
-                    : "");
+                    + "；本次运行 " + finding.totalCount + " 次"
+                    + "（HIT " + finding.hitCount
+                    + " / CHECKED " + finding.checkedCount
+                    + " / NOT_HIT " + finding.notHitCount
+                    + " / UNKNOWN " + finding.unknownCount + "）";
             report.findings.add(finding);
         }
     }
@@ -256,6 +273,12 @@ public final class DiagnosticEngine {
             long exitTs,
             DiagnosticFinding finding
     ) {
+        int incomingPriority = statePriority(event.hitState);
+        int currentPriority = statePriority(finding.representativeState);
+
+        if (incomingPriority > currentPriority) return true;
+        if (incomingPriority < currentPriority) return false;
+
         if (exitTs <= 0) {
             return event.ts >= finding.closestEventTimestamp;
         }
@@ -266,11 +289,23 @@ public final class DiagnosticEngine {
         return finding.closestDeltaMs == Long.MAX_VALUE || delta < finding.closestDeltaMs;
     }
 
+    private static int statePriority(DetectionHitState state) {
+        if (state == null) return 0;
+        switch (state) {
+            case HIT: return 4;
+            case CHECKED: return 3;
+            case UNKNOWN: return 2;
+            case NOT_HIT: return 1;
+            default: return 0;
+        }
+    }
+
     private static void copyRepresentative(
             LogEventParser.TraceEvent event,
             long exitTs,
             DiagnosticFinding finding
     ) {
+        finding.representativeState = event.hitState;
         finding.closestEventTimestamp = event.ts;
         finding.closestDeltaMs = exitTs > 0
                 ? Math.max(0L, exitTs - event.ts)
@@ -318,123 +353,16 @@ public final class DiagnosticEngine {
     }
 
     private static EventDescriptor describe(LogEventParser.TraceEvent event) {
-        String rule = event.ruleId == null ? DetectionRuleIds.UNKNOWN : event.ruleId;
-
-        switch (rule) {
-            case DetectionRuleIds.ROOT_FILE_SU:
-                return detected("root", "su 二进制文件检测",
-                        "目标 App 实际检查了 su 路径");
-            case DetectionRuleIds.ROOT_FILE_MAGISK:
-                return detected("root", "Magisk 文件/路径检测",
-                        "目标 App 实际检查了 Magisk 相关路径");
-            case DetectionRuleIds.ROOT_FILE_KERNELSU:
-                return detected("root", "KernelSU 文件/路径检测",
-                        "目标 App 实际检查了 KernelSU 相关路径");
-            case DetectionRuleIds.ROOT_FILE_APATCH:
-                return detected("root", "APatch 文件/路径检测",
-                        "目标 App 实际检查了 APatch 相关路径");
-            case DetectionRuleIds.ROOT_DATA_ADB:
-                return detected("mount", "/data/adb 环境检测",
-                        "目标 App 实际访问了 /data/adb");
-            case DetectionRuleIds.HOOK_PROC_MAPS:
-                return detected("hook", "/proc/self/maps 注入环境检测",
-                        "目标 App 实际读取或检查了自身 maps");
-            case DetectionRuleIds.DEBUG_PROC_STATUS:
-                return detected("debugger", "/proc/self/status 调试状态检测",
-                        "目标 App 实际读取了自身 status/TracerPid 相关信息");
-            case DetectionRuleIds.MOUNT_PROC_MOUNT:
-                return detected("mount", "Mount namespace 检测",
-                        "目标 App 实际读取了 mount/mountinfo");
-            case DetectionRuleIds.PACKAGE_MAGISK:
-                return detected("package", "Magisk 包名检测",
-                        "目标 App 实际查询了 Magisk 相关包");
-            case DetectionRuleIds.PACKAGE_KERNELSU:
-                return detected("package", "KernelSU 包名检测",
-                        "目标 App 实际查询了 KernelSU 相关包");
-            case DetectionRuleIds.PACKAGE_APATCH:
-                return detected("package", "APatch 包名检测",
-                        "目标 App 实际查询了 APatch 相关包");
-            case DetectionRuleIds.PACKAGE_LSPOSED:
-                return detected("package", "LSPosed 包名检测",
-                        "目标 App 实际查询了 LSPosed 相关包");
-            case DetectionRuleIds.PACKAGE_XPOSED:
-                return detected("package", "Xposed 包名检测",
-                        "目标 App 实际查询了 Xposed 相关包");
-            case DetectionRuleIds.PACKAGE_FRIDA:
-                return detected("package", "Frida 包/组件检测",
-                        "目标 App 实际查询了 Frida 相关信息");
-            case DetectionRuleIds.PACKAGE_SHIZUKU:
-                return detected("package", "Shizuku 包名检测",
-                        "目标 App 实际查询了 Shizuku 相关包");
-            case DetectionRuleIds.PACKAGE_ENUMERATION:
-                return detected("package", "已安装应用枚举",
-                        "目标 App 实际枚举了已安装应用");
-            case DetectionRuleIds.PROP_VERIFIED_BOOT:
-                return detected("integrity", "Verified Boot 状态检测",
-                        "目标 App 实际读取了 verified boot 状态");
-            case DetectionRuleIds.PROP_VBMETA_STATE:
-                return detected("integrity", "VBMeta 状态检测",
-                        "目标 App 实际读取了 vbmeta device state");
-            case DetectionRuleIds.PROP_FLASH_LOCKED:
-                return detected("integrity", "Bootloader Lock 状态检测",
-                        "目标 App 实际读取了 flash locked 状态");
-            case DetectionRuleIds.PROP_DEBUGGABLE:
-                return detected("environment", "ro.debuggable 检测",
-                        "目标 App 实际读取了 ro.debuggable");
-            case DetectionRuleIds.PROP_SECURE:
-                return detected("environment", "ro.secure 检测",
-                        "目标 App 实际读取了 ro.secure");
-            case DetectionRuleIds.PROP_BUILD_TAGS:
-                return detected("environment", "Build Tags 检测",
-                        "目标 App 实际读取了 ro.build.tags");
-            case DetectionRuleIds.PROP_BUILD_TYPE:
-                return detected("environment", "Build Type 检测",
-                        "目标 App 实际读取了 ro.build.type");
-            case DetectionRuleIds.CMD_SU:
-                return detected("root", "su 命令检测",
-                        "目标 App 实际执行了 su 相关命令");
-            case DetectionRuleIds.CMD_GETPROP:
-                return detected("environment", "getprop 环境查询",
-                        "目标 App 实际通过 shell 查询系统属性");
-            case DetectionRuleIds.CMD_MOUNT:
-                return detected("mount", "mount 命令检测",
-                        "目标 App 实际执行了 mount 相关命令");
-            case DetectionRuleIds.CMD_SELINUX:
-                return detected("selinux", "SELinux 状态检测",
-                        "目标 App 实际执行了 getenforce");
-            case DetectionRuleIds.DEBUG_IS_CONNECTED:
-                return detected("debugger", "Debugger 连接检测",
-                        "目标 App 实际调用了 Debug.isDebuggerConnected");
-            case DetectionRuleIds.DEBUG_WAITING:
-                return detected("debugger", "Debugger 等待状态检测",
-                        "目标 App 实际调用了 Debug.waitingForDebugger");
-            case DetectionRuleIds.PERMISSION_QUERY:
-                return detected("permission", "权限状态查询",
-                        "目标 App 实际查询了权限状态");
-            case DetectionRuleIds.NATIVE_PTRACE:
-                return detected("debugger", "Native ptrace 调试器检测",
-                        "目标 App 的 native 代码实际调用了 ptrace");
-            case DetectionRuleIds.EXIT_NATIVE_ABORT:
-                return failed("exit", "Native abort 主动退出",
-                        "目标 App 的 native 代码实际调用了 abort");
-            case DetectionRuleIds.EXIT_NATIVE_EXIT:
-                return failed("exit", "Native exit/_exit 主动退出",
-                        "目标 App 的 native 代码实际调用了 exit/_exit");
-            case DetectionRuleIds.EXIT_NATIVE_KILL:
-                return failed("exit", "Native kill/tgkill 主动退出",
-                        "目标 App 的 native 代码实际向自身进程/线程发送退出信号");
-            case DetectionRuleIds.EXIT_SYSTEM:
-                return failed("exit", "System.exit 主动退出",
-                        "目标 App 实际调用了 System.exit");
-            case DetectionRuleIds.EXIT_HALT:
-                return failed("exit", "Runtime.halt 主动退出",
-                        "目标 App 实际调用了 Runtime.halt");
-            case DetectionRuleIds.EXIT_KILL_PROCESS:
-                return failed("exit", "killProcess 主动退出",
-                        "目标 App 实际调用了 Process.killProcess");
-            default:
-                return describeByType(event);
+        DetectionRuleDefinition rule = DetectionRuleCatalog.get(event.ruleId);
+        if (rule != null) {
+            return new EventDescriptor(
+                    rule.category,
+                    rule.title,
+                    "exit".equals(rule.category) ? DiagnosticStatus.FAIL : DiagnosticStatus.DETECTED,
+                    rule.whyDetected
+            );
         }
+        return describeByType(event);
     }
 
     private static EventDescriptor describeByType(LogEventParser.TraceEvent event) {
