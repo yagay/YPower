@@ -240,12 +240,49 @@ public final class FixRecommendationEngine {
         StringBuilder b = new StringBuilder();
         b.append("本项被标记为").append(role)
                 .append("，关联分数为 ").append(f.correlationScore).append("/100。");
-        if (!f.evidence.isEmpty()) {
-            b.append(" YPower 在同一次运行会话中记录到了对应检测证据，并将它与真实退出时间进行关联。");
+
+        if (f.ruleId != null && !f.ruleId.isBlank()) {
+            b.append(" 规则 ID：").append(f.ruleId).append("。");
         }
+
+        if (f.closestDeltaMs != Long.MAX_VALUE) {
+            b.append(" 离真实退出最近的一次检测相隔 ")
+                    .append(f.closestDeltaMs)
+                    .append(" ms。");
+        }
+
+        if (f.matchedCount > 0) {
+            b.append(" 本次运行共触发 ").append(f.totalCount)
+                    .append(" 次，其中明确命中 ")
+                    .append(f.matchedCount)
+                    .append(" 次。");
+        } else if (f.totalCount > 0) {
+            b.append(" 本次运行观察到了 ").append(f.totalCount)
+                    .append(" 次检查，但没有记录到明确的阳性命中结果，因此这一项的归因权重较低。");
+        }
+
+        if (f.sameThreadAsExit) {
+            b.append(" 检测与退出发生在同一线程。");
+        }
+
+        if (f.sharedExitFrames > 0) {
+            b.append(" 检测栈与退出栈存在 ")
+                    .append(f.sharedExitFrames)
+                    .append(" 个共同业务调用帧。");
+        }
+
+        if (f.result != null && !f.result.isBlank()) {
+            b.append(" 代表性返回结果：").append(f.result).append("。");
+        }
+
+        if (f.exception != null && !f.exception.isBlank()) {
+            b.append(" 代表性调用还抛出了异常：").append(f.exception).append("。");
+        }
+
         if (f.attributionRank == 2) {
-            b.append(" 它不是最高分原因，但分数达到次要归因阈值且与主要归因差距较小。");
+            b.append(" 它不是最高分原因，但达到次要归因阈值且与主要归因分差较小。");
         }
+
         return b.toString();
     }
 
