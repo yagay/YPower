@@ -67,6 +67,15 @@ public final class FixRecommendationEngine {
                     .append(" 个共同业务调用帧。");
         }
 
+        if (f.sameThreadAsFatal) {
+            b.append(" 该检测与 Java Fatal 发生在同一线程。");
+        }
+        if (f.sharedFatalFrames > 0) {
+            b.append(" 检测栈与 Java Fatal 栈有 ")
+                    .append(f.sharedFatalFrames)
+                    .append(" 个共同业务调用帧，形成“检测→异常→退出”的中间证据。");
+        }
+
         if (f.input != null && !f.input.isBlank()) {
             b.append(" 代表输入：").append(f.input).append("。");
         }
