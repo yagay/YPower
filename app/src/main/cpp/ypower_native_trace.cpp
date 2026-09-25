@@ -6,15 +6,24 @@
 #include <cerrno>
 #include <cinttypes>
 #include <cctype>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <link.h>
 #include <mutex>
 #include <pthread.h>
 #include <signal.h>
 #include <string>
 #include <sys/ptrace.h>
+#include <sys/auxv.h>
+#include <sys/mman.h>
+#include <sys/system_properties.h>
+#include <sys/utsname.h>
+#include <sys/xattr.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <time.h>
@@ -170,8 +179,19 @@ static const char *rule_for_path(const char *path) {
             || s == "/sbin/su") {
         return "ROOT_FILE_SU";
     }
+    if (s.find("/proc/self/smaps") != std::string::npos) return "MEMORY_SMAPS_QUERY";
     if (s.find("/proc/self/maps") != std::string::npos) return "HOOK_PROC_MAPS";
     if (s.find("/proc/self/status") != std::string::npos) return "DEBUG_PROC_STATUS";
+    if (s.find("/proc/self/fd") != std::string::npos) return "MEMORY_FD_QUERY";
+    if (s.find("/proc/self/task") != std::string::npos) return "MEMORY_TASK_QUERY";
+    if (s == "/proc/version") return "KERNEL_PROC_VERSION";
+    if (s == "/proc/cmdline") return "KERNEL_CMDLINE_QUERY";
+    if (s == "/proc/sys/kernel/osrelease") return "KERNEL_OSRELEASE_QUERY";
+    if (s == "/proc/sys/kernel/version") return "KERNEL_SYS_VERSION_QUERY";
+    if (s == "/proc/sys/kernel/kptr_restrict") return "KERNEL_KPTR_QUERY";
+    if (s == "/sys/fs/selinux/enforce") return "SELINUX_ENFORCE_READ";
+    if (s == "/proc/self/attr/current") return "SELINUX_CONTEXT_READ";
+    if (s.rfind("/sys/fs/selinux/", 0) == 0) return "SELINUX_POLICY_READ";
     if (s.find("mountinfo") != std::string::npos || s.find("/proc/mount") != std::string::npos) {
         return "MOUNT_PROC_MOUNT";
     }
@@ -254,6 +274,38 @@ static bool caller_allow_filter(const char *caller_path_name, void *) {
     return true;
 }
 
+static const char *rule_for_property(const char *key) {
+    if (key == nullptr) return "PROP_GENERIC";
+    std::string s(key);
+    if (s.find("verifiedbootstate") != std::string::npos) return "PROP_VERIFIED_BOOT";
+    if (s.find("vbmeta.device_state") != std::string::npos) return "PROP_VBMETA_STATE";
+    if (s.find("flash.locked") != std::string::npos) return "PROP_FLASH_LOCKED";
+    if (s.find("ro.debuggable") != std::string::npos) return "PROP_DEBUGGABLE";
+    if (s.find("ro.secure") != std::string::npos) return "PROP_SECURE";
+    if (s.find("ro.build.tags") != std::string::npos) return "PROP_BUILD_TAGS";
+    if (s.find("ro.build.type") != std::string::npos) return "PROP_BUILD_TYPE";
+    return "PROP_GENERIC";
+}
+
+static bool property_value_matched(const char *rule, const char *value) {
+    std::string s = value == nullptr ? "" : value;
+    for (char &ch : s) ch = static_cast<char>(tolower(ch));
+
+    if (strcmp(rule, "PROP_VERIFIED_BOOT") == 0) return !s.empty() && s != "green";
+    if (strcmp(rule, "PROP_VBMETA_STATE") == 0) return s == "unlocked" || s == "orange";
+    if (strcmp(rule, "PROP_FLASH_LOCKED") == 0) return s == "0" || s == "false";
+    if (strcmp(rule, "PROP_DEBUGGABLE") == 0) return s == "1" || s == "true";
+    if (strcmp(rule, "PROP_SECURE") == 0) return s == "0" || s == "false";
+    if (strcmp(rule, "PROP_BUILD_TAGS") == 0) return s.find("test-keys") != std::string::npos;
+    if (strcmp(rule, "PROP_BUILD_TYPE") == 0) return s == "eng" || s == "userdebug";
+    return false;
+}
+
+static bool watched_signal(int signum) {
+    return signum == SIGTRAP || signum == SIGBUS || signum == SIGSEGV
+            || signum == SIGILL || signum == SIGABRT;
+}
+
 static bool interesting_symbol(const char *symbol) {
     if (symbol == nullptr) return false;
     std::string s(symbol);
@@ -331,6 +383,307 @@ static void *proxy_dlsym(void *handle, const char *symbol) {
     }
 
     errno = saved_errno;
+    return ret;
+}
+
+static int proxy_open(const char *pathname, int flags, ...) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+
+    mode_t mode = 0;
+    bool has_mode = (flags & O_CREAT) != 0;
+#ifdef O_TMPFILE
+    has_mode = has_mode || ((flags & O_TMPFILE) == O_TMPFILE);
+#endif
+    int ret;
+    if (has_mode) {
+        va_list ap;
+        va_start(ap, flags);
+        mode = static_cast<mode_t>(va_arg(ap, int));
+        va_end(ap);
+        ret = BYTEHOOK_CALL_PREV(proxy_open, pathname, flags, mode);
+    } else {
+        ret = BYTEHOOK_CALL_PREV(proxy_open, pathname, flags);
+    }
+    int saved_errno = errno;
+
+    if (sensitive_path(pathname)) {
+        emit_event(
+                "native_file",
+                rule_for_path(pathname),
+                std::string("open ") + (pathname == nullptr ? "" : pathname),
+                std::to_string(ret),
+                ret >= 0,
+                ret >= 0 ? "" : errno_text(saved_errno),
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    errno = saved_errno;
+    return ret;
+}
+
+static int proxy_openat(int dirfd, const char *pathname, int flags, ...) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+
+    mode_t mode = 0;
+    bool has_mode = (flags & O_CREAT) != 0;
+#ifdef O_TMPFILE
+    has_mode = has_mode || ((flags & O_TMPFILE) == O_TMPFILE);
+#endif
+    int ret;
+    if (has_mode) {
+        va_list ap;
+        va_start(ap, flags);
+        mode = static_cast<mode_t>(va_arg(ap, int));
+        va_end(ap);
+        ret = BYTEHOOK_CALL_PREV(proxy_openat, dirfd, pathname, flags, mode);
+    } else {
+        ret = BYTEHOOK_CALL_PREV(proxy_openat, dirfd, pathname, flags);
+    }
+    int saved_errno = errno;
+
+    if (sensitive_path(pathname)) {
+        emit_event(
+                "native_file",
+                rule_for_path(pathname),
+                std::string("openat ") + (pathname == nullptr ? "" : pathname),
+                std::to_string(ret),
+                ret >= 0,
+                ret >= 0 ? "" : errno_text(saved_errno),
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    errno = saved_errno;
+    return ret;
+}
+
+static DIR *proxy_opendir(const char *name) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    DIR *ret = BYTEHOOK_CALL_PREV(proxy_opendir, name);
+    int saved_errno = errno;
+    if (sensitive_path(name)) {
+        emit_event(
+                "native_file",
+                rule_for_path(name),
+                std::string("opendir ") + (name == nullptr ? "" : name),
+                ret == nullptr ? "null" : "opened",
+                ret != nullptr,
+                ret == nullptr ? errno_text(saved_errno) : "",
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    errno = saved_errno;
+    return ret;
+}
+
+static int proxy___system_property_get(const char *key, char *value) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+
+    int ret = BYTEHOOK_CALL_PREV(proxy___system_property_get, key, value);
+    int saved_errno = errno;
+    const char *rule = rule_for_property(key);
+    std::string result = ret > 0 && value != nullptr ? std::string(value, static_cast<size_t>(ret)) : "";
+    emit_event(
+            "native_property",
+            rule,
+            std::string("__system_property_get ") + (key == nullptr ? "" : key),
+            result,
+            property_value_matched(rule, result.c_str()),
+            ret < 0 ? errno_text(saved_errno) : "",
+            source,
+            now_ns_monotonic() - start
+    );
+    errno = saved_errno;
+    return ret;
+}
+
+static int proxy_uname(struct utsname *buf) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    int ret = BYTEHOOK_CALL_PREV(proxy_uname, buf);
+    int saved_errno = errno;
+
+    std::string result;
+    if (ret == 0 && buf != nullptr) {
+        result = std::string(buf->sysname) + " " + buf->release + " " + buf->version
+                + " " + buf->machine;
+    }
+
+    emit_event(
+            "native_kernel",
+            "KERNEL_UNAME_QUERY",
+            "uname()",
+            result,
+            false,
+            ret == 0 ? "" : errno_text(saved_errno),
+            source,
+            now_ns_monotonic() - start
+    );
+    errno = saved_errno;
+    return ret;
+}
+
+static ssize_t proxy_getxattr(
+        const char *path, const char *name, void *value, size_t size) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    ssize_t ret = BYTEHOOK_CALL_PREV(proxy_getxattr, path, name, value, size);
+    int saved_errno = errno;
+
+    if ((name != nullptr && strstr(name, "selinux") != nullptr)
+            || (path != nullptr && strstr(path, "/sys/fs/selinux") != nullptr)) {
+        std::string result;
+        if (ret > 0 && value != nullptr) {
+            result.assign(static_cast<const char *>(value), static_cast<size_t>(ret));
+        }
+        emit_event(
+                "native_selinux",
+                "SELINUX_XATTR_QUERY",
+                std::string("getxattr path=") + (path == nullptr ? "" : path)
+                        + " name=" + (name == nullptr ? "" : name),
+                result,
+                false,
+                ret < 0 ? errno_text(saved_errno) : "",
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    errno = saved_errno;
+    return ret;
+}
+
+static ssize_t proxy_lgetxattr(
+        const char *path, const char *name, void *value, size_t size) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    ssize_t ret = BYTEHOOK_CALL_PREV(proxy_lgetxattr, path, name, value, size);
+    int saved_errno = errno;
+
+    if ((name != nullptr && strstr(name, "selinux") != nullptr)
+            || (path != nullptr && strstr(path, "/sys/fs/selinux") != nullptr)) {
+        std::string result;
+        if (ret > 0 && value != nullptr) {
+            result.assign(static_cast<const char *>(value), static_cast<size_t>(ret));
+        }
+        emit_event(
+                "native_selinux",
+                "SELINUX_XATTR_QUERY",
+                std::string("lgetxattr path=") + (path == nullptr ? "" : path)
+                        + " name=" + (name == nullptr ? "" : name),
+                result,
+                false,
+                ret < 0 ? errno_text(saved_errno) : "",
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    errno = saved_errno;
+    return ret;
+}
+
+static int proxy_sigaction(
+        int signum, const struct sigaction *act, struct sigaction *oldact) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    int ret = BYTEHOOK_CALL_PREV(proxy_sigaction, signum, act, oldact);
+    int saved_errno = errno;
+
+    if (watched_signal(signum)) {
+        std::string result = ret == 0 ? "ok" : std::to_string(ret);
+        emit_event(
+                "native_memory",
+                "MEMORY_SIGNAL_QUERY",
+                "sigaction signal=" + std::to_string(signum)
+                        + (act == nullptr ? " query" : " set"),
+                result,
+                false,
+                ret == 0 ? "" : errno_text(saved_errno),
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    errno = saved_errno;
+    return ret;
+}
+
+static unsigned long proxy_getauxval(unsigned long type) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    unsigned long ret = BYTEHOOK_CALL_PREV(proxy_getauxval, type);
+
+    if (type == AT_SYSINFO_EHDR) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "0x%lx", ret);
+        emit_event(
+                "native_memory",
+                "MEMORY_VDSO_QUERY",
+                "getauxval(AT_SYSINFO_EHDR)",
+                buf,
+                false,
+                "",
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    return ret;
+}
+
+static int proxy_mprotect(void *addr, size_t len, int prot) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    int ret = BYTEHOOK_CALL_PREV(proxy_mprotect, addr, len, prot);
+    int saved_errno = errno;
+
+    if ((prot & PROT_EXEC) != 0) {
+        char input[160];
+        snprintf(input, sizeof(input), "mprotect addr=%p len=%zu prot=0x%x", addr, len, prot);
+        emit_event(
+                "native_memory",
+                "MEMORY_MPROTECT_QUERY",
+                input,
+                std::to_string(ret),
+                false,
+                ret == 0 ? "" : errno_text(saved_errno),
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+    errno = saved_errno;
+    return ret;
+}
+
+static int proxy_dl_iterate_phdr(
+        int (*callback)(struct dl_phdr_info *, size_t, void *), void *data) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+    int ret = BYTEHOOK_CALL_PREV(proxy_dl_iterate_phdr, callback, data);
+    emit_event(
+            "native_memory",
+            "MEMORY_LINKER_ENUM_QUERY",
+            "dl_iterate_phdr()",
+            std::to_string(ret),
+            false,
+            "",
+            source,
+            now_ns_monotonic() - start
+    );
     return ret;
 }
 
@@ -598,6 +951,9 @@ static void add_hook(const char *symbol, void *proxy) {
 static void install_hooks_locked() {
     if (g_hooks_installed) return;
 
+    add_hook("open", reinterpret_cast<void *>(proxy_open));
+    add_hook("openat", reinterpret_cast<void *>(proxy_openat));
+    add_hook("opendir", reinterpret_cast<void *>(proxy_opendir));
     add_hook("access", reinterpret_cast<void *>(proxy_access));
     add_hook("fopen", reinterpret_cast<void *>(proxy_fopen));
     add_hook("stat", reinterpret_cast<void *>(proxy_stat));
@@ -609,7 +965,16 @@ static void install_hooks_locked() {
     add_hook("_exit", reinterpret_cast<void *>(proxy__exit));
     add_hook("kill", reinterpret_cast<void *>(proxy_kill));
     add_hook("tgkill", reinterpret_cast<void *>(proxy_tgkill));
+    add_hook("__system_property_get", reinterpret_cast<void *>(proxy___system_property_get));
+    add_hook("uname", reinterpret_cast<void *>(proxy_uname));
+    add_hook("getxattr", reinterpret_cast<void *>(proxy_getxattr));
+    add_hook("lgetxattr", reinterpret_cast<void *>(proxy_lgetxattr));
+    add_hook("sigaction", reinterpret_cast<void *>(proxy_sigaction));
+    add_hook("getauxval", reinterpret_cast<void *>(proxy_getauxval));
+    add_hook("mprotect", reinterpret_cast<void *>(proxy_mprotect));
     add_hook_for_library("libdl.so", "dlsym", reinterpret_cast<void *>(proxy_dlsym));
+    add_hook_for_library("libdl.so", "dl_iterate_phdr", reinterpret_cast<void *>(proxy_dl_iterate_phdr));
+    add_hook("dl_iterate_phdr", reinterpret_cast<void *>(proxy_dl_iterate_phdr));
     bytehook_add_dlopen_callback(dlopen_pre_callback, dlopen_post_callback, nullptr);
 
     g_hooks_installed = true;
