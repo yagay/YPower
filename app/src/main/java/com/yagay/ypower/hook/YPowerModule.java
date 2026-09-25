@@ -19,6 +19,7 @@ import com.yagay.ypower.hook.provider.IdentityHookProvider;
 import com.yagay.ypower.hook.provider.PackageScanHookProvider;
 import com.yagay.ypower.hook.provider.PermissionHookProvider;
 import com.yagay.ypower.hook.provider.PropertyTraceHookProvider;
+import com.yagay.ypower.hook.provider.SecurityApiTraceHookProvider;
 import com.yagay.ypower.diag.DetectionRuleCatalog;
 import com.yagay.ypower.model.AppProfile;
 import com.yagay.ypower.model.DetectionHitState;
@@ -29,10 +30,15 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.RandomAccessFile;
 import java.lang.reflect.Constructor;
+import java.security.KeyStore;
+import java.security.MessageDigest;
+import java.util.zip.ZipFile;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
@@ -43,6 +49,7 @@ public final class YPowerModule extends XposedModule {
 
     private String activePackageName = "";
     private ClassLoader targetClassLoader;
+    private final Set<String> dynamicallyHookedSecurityClasses = new HashSet<>();
 
     private static final List<HookProvider> PROVIDERS = List.of(
             new IdentityHookProvider(),
@@ -52,7 +59,8 @@ public final class YPowerModule extends XposedModule {
             new CommandTraceHookProvider(),
             new PropertyTraceHookProvider(),
             new DebuggerTraceHookProvider(),
-            new ExceptionTraceHookProvider()
+            new ExceptionTraceHookProvider(),
+            new SecurityApiTraceHookProvider()
     );
 
     @Override
@@ -694,6 +702,448 @@ public final class YPowerModule extends XposedModule {
         }
     }
 
+    public void installSecurityApiTraceHooks(AppProfile profile) {
+        installKeyStoreTraceHooks(profile);
+        installPlayIntegrityTraceHooks(profile);
+        installSelfIntegrityTraceHooks(profile);
+    }
+
+    private void installKeyStoreTraceHooks(AppProfile profile) {
+        for (Method method : KeyStore.class.getDeclaredMethods()) {
+            String name = method.getName();
+            if (!("getInstance".equals(name) || "getCertificateChain".equals(name))) continue;
+
+            try {
+                hook(method).intercept(chain -> {
+                    long startNs = System.nanoTime();
+                    String input = collectArgs(method, chain);
+                    String rule = "getCertificateChain".equals(name)
+                            ? DetectionRuleIds.KEY_CERT_CHAIN_QUERY
+                            : DetectionRuleIds.KEYSTORE_INSTANCE_QUERY;
+                    try {
+                        Object result = chain.proceed();
+                        traceCall(
+                                profile,
+                                "attestation",
+                                rule,
+                                "KeyStore." + name + " " + input,
+                                safeSecurityResult(rule, result),
+                                false,
+                                "",
+                                "java.security.KeyStore." + name,
+                                startNs,
+                                true
+                        );
+                        return result;
+                    } catch (Throwable t) {
+                        traceCall(
+                                profile,
+                                "attestation",
+                                rule,
+                                "KeyStore." + name + " " + input,
+                                "",
+                                false,
+                                throwableText(t),
+                                "java.security.KeyStore." + name,
+                                startNs,
+                                true
+                        );
+                        throw t;
+                    }
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "KeyStore." + name + " hook failed: " + t);
+            }
+        }
+
+        Class<?> builder = findTargetClass("android.security.keystore.KeyGenParameterSpec$Builder");
+        if (builder != null) {
+            for (Method method : builder.getDeclaredMethods()) {
+                String name = method.getName();
+                String rule;
+                if ("setAttestationChallenge".equals(name)) {
+                    rule = DetectionRuleIds.KEY_ATTESTATION_CHALLENGE;
+                } else if ("setIsStrongBoxBacked".equals(name)) {
+                    rule = DetectionRuleIds.KEY_STRONGBOX_REQUEST;
+                } else {
+                    continue;
+                }
+
+                try {
+                    hook(method).intercept(chain -> {
+                        long startNs = System.nanoTime();
+                        Object arg = method.getParameterCount() > 0 ? chain.getArg(0) : null;
+                        String input;
+                        if (arg instanceof byte[]) {
+                            input = name + " bytes=" + ((byte[]) arg).length;
+                        } else {
+                            input = name + "=" + stringify(arg);
+                        }
+
+                        try {
+                            Object result = chain.proceed();
+                            traceCall(
+                                    profile,
+                                    "attestation",
+                                    rule,
+                                    input,
+                                    "configured",
+                                    false,
+                                    "",
+                                    "KeyGenParameterSpec.Builder." + name,
+                                    startNs,
+                                    true
+                            );
+                            return result;
+                        } catch (Throwable t) {
+                            traceCall(
+                                    profile,
+                                    "attestation",
+                                    rule,
+                                    input,
+                                    "",
+                                    false,
+                                    throwableText(t),
+                                    "KeyGenParameterSpec.Builder." + name,
+                                    startNs,
+                                    true
+                            );
+                            throw t;
+                        }
+                    });
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "KeyGenParameterSpec.Builder." + name + " hook failed: " + t);
+                }
+            }
+        }
+
+        Class<?> keyInfo = findTargetClass("android.security.keystore.KeyInfo");
+        if (keyInfo != null) {
+            for (Method method : keyInfo.getDeclaredMethods()) {
+                String name = method.getName();
+                if (!("getSecurityLevel".equals(name)
+                        || "isInsideSecureHardware".equals(name)
+                        || "getOrigin".equals(name))) {
+                    continue;
+                }
+                try {
+                    hook(method).intercept(chain -> {
+                        long startNs = System.nanoTime();
+                        Object result = chain.proceed();
+                        traceCall(
+                                profile,
+                                "attestation",
+                                DetectionRuleIds.KEY_SECURITY_LEVEL_QUERY,
+                                "KeyInfo." + name,
+                                stringify(result),
+                                false,
+                                "",
+                                "android.security.keystore.KeyInfo." + name,
+                                startNs,
+                                true
+                        );
+                        return result;
+                    });
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "KeyInfo." + name + " hook failed: " + t);
+                }
+            }
+        }
+    }
+
+    private void installPlayIntegrityTraceHooks(AppProfile profile) {
+        installIntegrityFactoryHooks(
+                profile,
+                "com.google.android.play.core.integrity.IntegrityManagerFactory",
+                false
+        );
+        installIntegrityFactoryHooks(
+                profile,
+                "com.google.android.play.core.integrity.StandardIntegrityManagerFactory",
+                true
+        );
+
+        installIntegrityClassIfPresent(
+                profile,
+                "com.google.android.play.core.integrity.IntegrityTokenResponse",
+                false
+        );
+        installIntegrityClassIfPresent(
+                profile,
+                "com.google.android.play.core.integrity.StandardIntegrityManager$StandardIntegrityToken",
+                true
+        );
+    }
+
+    private void installIntegrityFactoryHooks(
+            AppProfile profile,
+            String className,
+            boolean standard
+    ) {
+        Class<?> factory = findTargetClass(className);
+        if (factory == null) return;
+
+        for (Method method : factory.getDeclaredMethods()) {
+            if (!("create".equals(method.getName()) || "get".equals(method.getName()))) continue;
+            try {
+                hook(method).intercept(chain -> {
+                    Object result = chain.proceed();
+                    if (result != null) {
+                        installIntegrityObjectHooks(profile, result.getClass(), standard);
+                    }
+                    return result;
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, className + "." + method.getName() + " hook failed: " + t);
+            }
+        }
+    }
+
+    private void installIntegrityClassIfPresent(
+            AppProfile profile,
+            String className,
+            boolean standard
+    ) {
+        Class<?> clazz = findTargetClass(className);
+        if (clazz != null) installIntegrityObjectHooks(profile, clazz, standard);
+    }
+
+    private void installIntegrityObjectHooks(
+            AppProfile profile,
+            Class<?> clazz,
+            boolean standard
+    ) {
+        String className = clazz.getName();
+        synchronized (dynamicallyHookedSecurityClasses) {
+            if (!dynamicallyHookedSecurityClasses.add(className)) return;
+        }
+
+        for (Method method : clazz.getDeclaredMethods()) {
+            String name = method.getName();
+            String rule;
+
+            if ("requestIntegrityToken".equals(name)) {
+                rule = DetectionRuleIds.PLAY_INTEGRITY_REQUEST;
+            } else if ("prepareIntegrityToken".equals(name)) {
+                rule = DetectionRuleIds.PLAY_INTEGRITY_STANDARD_PREPARE;
+            } else if (standard && ("request".equals(name) || "requestIntegrityToken".equals(name))) {
+                rule = DetectionRuleIds.PLAY_INTEGRITY_STANDARD_REQUEST;
+            } else if ("token".equals(name) || "getToken".equals(name)) {
+                rule = DetectionRuleIds.PLAY_INTEGRITY_TOKEN_QUERY;
+            } else {
+                continue;
+            }
+
+            try {
+                hook(method).intercept(chain -> {
+                    long startNs = System.nanoTime();
+                    String input = collectArgs(method, chain);
+                    try {
+                        Object result = chain.proceed();
+                        traceCall(
+                                profile,
+                                "play_integrity",
+                                rule,
+                                className + "." + name + " " + input,
+                                safeSecurityResult(rule, result),
+                                false,
+                                "",
+                                className + "." + name,
+                                startNs,
+                                true
+                        );
+                        if (result != null && !isSimpleValue(result)) {
+                            installIntegrityObjectHooks(profile, result.getClass(), standard);
+                        }
+                        return result;
+                    } catch (Throwable t) {
+                        traceCall(
+                                profile,
+                                "play_integrity",
+                                rule,
+                                className + "." + name + " " + input,
+                                "",
+                                false,
+                                throwableText(t),
+                                className + "." + name,
+                                startNs,
+                                true
+                        );
+                        throw t;
+                    }
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, className + "." + name + " hook failed: " + t);
+            }
+        }
+    }
+
+    private void installSelfIntegrityTraceHooks(AppProfile profile) {
+        try {
+            Class<?> apm = Class.forName("android.app.ApplicationPackageManager");
+            for (Method method : apm.getDeclaredMethods()) {
+                if (!"getPackageInfo".equals(method.getName()) || method.getParameterCount() < 1) continue;
+
+                hook(method).intercept(chain -> {
+                    Object pkgArg = chain.getArg(0);
+                    boolean ownPackage = activePackageName.equals(stringify(pkgArg));
+                    boolean signing = method.getParameterCount() > 1
+                            && looksLikeSigningFlags(chain.getArg(1));
+
+                    if (!ownPackage || !signing) return chain.proceed();
+
+                    long startNs = System.nanoTime();
+                    try {
+                        Object result = chain.proceed();
+                        traceCall(
+                                profile,
+                                "self_integrity",
+                                DetectionRuleIds.APP_SIGNATURE_QUERY,
+                                "getPackageInfo self flags=" + stringify(chain.getArg(1)),
+                                summarizeResult(result),
+                                false,
+                                "",
+                                "ApplicationPackageManager.getPackageInfo",
+                                startNs,
+                                true
+                        );
+                        return result;
+                    } catch (Throwable t) {
+                        traceCall(
+                                profile,
+                                "self_integrity",
+                                DetectionRuleIds.APP_SIGNATURE_QUERY,
+                                "getPackageInfo self",
+                                "",
+                                false,
+                                throwableText(t),
+                                "ApplicationPackageManager.getPackageInfo",
+                                startNs,
+                                true
+                        );
+                        throw t;
+                    }
+                });
+            }
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "self signing hook failed: " + t);
+        }
+
+        for (Constructor<?> constructor : ZipFile.class.getDeclaredConstructors()) {
+            if (constructor.getParameterCount() < 1) continue;
+            try {
+                hook(constructor).intercept(chain -> {
+                    String path = stringify(chain.getArg(0));
+                    if (!path.endsWith(".apk") && !path.contains("base.apk")) {
+                        return chain.proceed();
+                    }
+
+                    long startNs = System.nanoTime();
+                    try {
+                        Object result = chain.proceed();
+                        traceCall(
+                                profile,
+                                "self_integrity",
+                                DetectionRuleIds.SELF_APK_READ,
+                                path,
+                                "opened",
+                                false,
+                                "",
+                                "java.util.zip.ZipFile",
+                                startNs,
+                                true
+                        );
+                        return result;
+                    } catch (Throwable t) {
+                        traceCall(
+                                profile,
+                                "self_integrity",
+                                DetectionRuleIds.SELF_APK_READ,
+                                path,
+                                "",
+                                false,
+                                throwableText(t),
+                                "java.util.zip.ZipFile",
+                                startNs,
+                                true
+                        );
+                        throw t;
+                    }
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "ZipFile constructor hook failed: " + t);
+            }
+        }
+
+        Class<?> dexFile = findTargetClass("dalvik.system.DexFile");
+        if (dexFile != null) {
+            for (Constructor<?> constructor : dexFile.getDeclaredConstructors()) {
+                if (constructor.getParameterCount() < 1) continue;
+                try {
+                    hook(constructor).intercept(chain -> {
+                        String path = stringify(chain.getArg(0));
+                        if (!path.contains(".dex") && !path.contains("classes")) {
+                            return chain.proceed();
+                        }
+                        long startNs = System.nanoTime();
+                        Object result = chain.proceed();
+                        traceCall(
+                                profile,
+                                "self_integrity",
+                                DetectionRuleIds.SELF_DEX_READ,
+                                path,
+                                "opened",
+                                false,
+                                "",
+                                "dalvik.system.DexFile",
+                                startNs,
+                                true
+                        );
+                        return result;
+                    });
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "DexFile constructor hook failed: " + t);
+                }
+            }
+        }
+
+        for (Method method : MessageDigest.class.getDeclaredMethods()) {
+            if (!"digest".equals(method.getName())) continue;
+            try {
+                hook(method).intercept(chain -> {
+                    if (!looksLikeIntegrityCallStack()) return chain.proceed();
+
+                    long startNs = System.nanoTime();
+                    MessageDigest digest = chain.getThisObject() instanceof MessageDigest
+                            ? (MessageDigest) chain.getThisObject()
+                            : null;
+                    int inputLength = 0;
+                    if (method.getParameterCount() > 0 && chain.getArg(0) instanceof byte[]) {
+                        inputLength = ((byte[]) chain.getArg(0)).length;
+                    }
+
+                    Object result = chain.proceed();
+                    traceCall(
+                            profile,
+                            "self_integrity",
+                            DetectionRuleIds.CERTIFICATE_DIGEST_QUERY,
+                            "algorithm=" + (digest == null ? "" : digest.getAlgorithm())
+                                    + " inputBytes=" + inputLength,
+                            result instanceof byte[] ? "digestBytes=" + ((byte[]) result).length : summarizeResult(result),
+                            false,
+                            "",
+                            "java.security.MessageDigest.digest",
+                            startNs,
+                            true
+                    );
+                    return result;
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "MessageDigest.digest hook failed: " + t);
+            }
+        }
+    }
+
     public void installExceptionTraceHooks(AppProfile profile) {
         installThreadExceptionHooks(profile);
         installCoroutineExceptionHooks(profile);
@@ -1228,6 +1678,64 @@ public final class YPowerModule extends XposedModule {
 
     private static String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean looksLikeSigningFlags(Object flags) {
+        if (flags == null) return false;
+        if (flags instanceof Integer) {
+            int value = (Integer) flags;
+            return (value & PackageManager.GET_SIGNATURES) != 0
+                    || (value & PackageManager.GET_SIGNING_CERTIFICATES) != 0;
+        }
+        if (flags instanceof Long) {
+            long value = (Long) flags;
+            return (value & PackageManager.GET_SIGNATURES) != 0
+                    || (value & PackageManager.GET_SIGNING_CERTIFICATES) != 0;
+        }
+        String text = String.valueOf(flags).toLowerCase(Locale.ROOT);
+        return text.contains("sign") || text.contains("134217728") || text.contains("64");
+    }
+
+    private static boolean looksLikeIntegrityCallStack() {
+        for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+            String text = (frame.getClassName() + "." + frame.getMethodName())
+                    .toLowerCase(Locale.ROOT);
+            if (text.contains("signature")
+                    || text.contains("signing")
+                    || text.contains("integrity")
+                    || text.contains("attest")
+                    || text.contains("certificate")
+                    || text.contains("tamper")
+                    || text.contains("verify")
+                    || text.contains("apk")
+                    || text.contains("dex")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String safeSecurityResult(String ruleId, Object result) {
+        if (result == null) return "null";
+        if (DetectionRuleIds.PLAY_INTEGRITY_TOKEN_QUERY.equals(ruleId)) {
+            String token = String.valueOf(result);
+            return "tokenPresent=" + !token.isBlank() + " length=" + token.length();
+        }
+        if (result instanceof java.security.cert.Certificate[]) {
+            return "certificateChainLength="
+                    + ((java.security.cert.Certificate[]) result).length;
+        }
+        if (result instanceof byte[]) {
+            return "bytes=" + ((byte[]) result).length;
+        }
+        return summarizeResult(result);
+    }
+
+    private static boolean isSimpleValue(Object value) {
+        return value instanceof CharSequence
+                || value instanceof Number
+                || value instanceof Boolean
+                || value instanceof byte[];
     }
 
     private void traceThrowableEvent(
