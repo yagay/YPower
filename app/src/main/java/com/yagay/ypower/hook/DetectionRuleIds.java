@@ -105,6 +105,12 @@ public final class DetectionRuleIds {
     public static final String SELF_SO_READ = "SELF_SO_READ";
     public static final String CERTIFICATE_DIGEST_QUERY = "CERTIFICATE_DIGEST_QUERY";
 
+    public static final String ATTESTATION_FLOW = "ATTESTATION_FLOW";
+    public static final String PLAY_INTEGRITY_FLOW = "PLAY_INTEGRITY_FLOW";
+    public static final String DIRTY_SEPOLICY_FLOW = "DIRTY_SEPOLICY_FLOW";
+    public static final String ZYGISK_PTRACE_FLOW = "ZYGISK_PTRACE_FLOW";
+    public static final String SELF_INTEGRITY_FLOW = "SELF_INTEGRITY_FLOW";
+
     public static String forPath(String value) {
         String s = lower(value);
 
