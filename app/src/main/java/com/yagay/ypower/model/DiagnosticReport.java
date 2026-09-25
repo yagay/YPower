@@ -17,7 +17,14 @@ public class DiagnosticReport {
     public long createdAt = System.currentTimeMillis();
     public long sessionStartMs;
     public long sessionEndMs;
+    public String sessionId = "";
     public long lastExitTimestamp;
+    public int exitPid = -1;
+    public int exitTid = -1;
+    public String exitThread = "";
+    public String exitSource = "";
+    public String exitStack = "";
+    public String exitRuleId = "";
     public int observedEventCount;
     public String exitSummary = "";
     public String attribution = "";
@@ -74,7 +81,29 @@ public class DiagnosticReport {
             else if (f.attributionRank == 2) b.append("[次要归因] ");
             b.append(f.title).append('\n');
             b.append("类别：").append(f.category).append('\n');
+            if (f.ruleId != null && !f.ruleId.isBlank()) {
+                b.append("规则：").append(f.ruleId).append('\n');
+            }
             b.append("摘要：").append(f.summary).append('\n');
+            if (f.totalCount > 0) {
+                b.append("本次触发：").append(f.totalCount)
+                        .append(" 次，命中 ").append(f.matchedCount).append(" 次\n");
+            }
+            if (f.closestDeltaMs != Long.MAX_VALUE) {
+                b.append("距退出：").append(f.closestDeltaMs).append(" ms\n");
+            }
+            if (f.tid >= 0) {
+                b.append("线程：").append(f.thread)
+                        .append(" (pid=").append(f.pid)
+                        .append(", tid=").append(f.tid).append(")\n");
+            }
+            if (f.sameThreadAsExit) b.append("与退出：同线程\n");
+            if (f.sharedExitFrames > 0) {
+                b.append("共同调用栈帧：").append(f.sharedExitFrames).append('\n');
+            }
+            if (f.input != null && !f.input.isBlank()) b.append("输入：").append(f.input).append('\n');
+            if (f.result != null && !f.result.isBlank()) b.append("结果：").append(f.result).append('\n');
+            if (f.exception != null && !f.exception.isBlank()) b.append("异常：").append(f.exception).append('\n');
             if (f.correlationScore > 0) b.append("退出关联：").append(f.correlationScore).append("/100\n");
             if (f.detail != null && !f.detail.equals(f.summary)) b.append("详情：").append(f.detail).append('\n');
             for (String e : f.evidence) b.append("证据：").append(e).append('\n');
@@ -133,8 +162,15 @@ public class DiagnosticReport {
             o.put("createdAt", createdAt);
             o.put("sessionStartMs", sessionStartMs);
             o.put("sessionEndMs", sessionEndMs);
+            o.put("sessionId", sessionId);
             o.put("observedEventCount", observedEventCount);
             o.put("lastExitTimestamp", lastExitTimestamp);
+            o.put("exitPid", exitPid);
+            o.put("exitTid", exitTid);
+            o.put("exitThread", exitThread);
+            o.put("exitSource", exitSource);
+            o.put("exitStack", exitStack);
+            o.put("exitRuleId", exitRuleId);
             o.put("exitSummary", exitSummary);
             o.put("attribution", attribution);
             JSONArray fs = new JSONArray();
