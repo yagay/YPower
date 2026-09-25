@@ -31,6 +31,7 @@ public class AppProfile {
     public boolean traceDebugger;
     public boolean traceExceptions;
     public boolean traceNative;
+    public boolean traceSyscalls;
     public boolean traceStacks = true;
     public String diagnosticSessionId = "";
 
@@ -69,6 +70,7 @@ public class AppProfile {
             o.put("traceDebugger", traceDebugger);
             o.put("traceExceptions", traceExceptions);
             o.put("traceNative", traceNative);
+            o.put("traceSyscalls", traceSyscalls);
             o.put("traceStacks", traceStacks);
             o.put("diagnosticSessionId", diagnosticSessionId);
 
@@ -108,6 +110,7 @@ public class AppProfile {
             p.traceDebugger = o.optBoolean("traceDebugger", false);
             p.traceExceptions = o.optBoolean("traceExceptions", false);
             p.traceNative = o.optBoolean("traceNative", false);
+            p.traceSyscalls = o.optBoolean("traceSyscalls", false);
             p.traceStacks = o.optBoolean("traceStacks", true);
             p.diagnosticSessionId = o.optString("diagnosticSessionId", "");
             p.traceJava = legacyTrace;
