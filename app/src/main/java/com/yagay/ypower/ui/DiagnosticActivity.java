@@ -1,8 +1,12 @@
 package com.yagay.ypower.ui;
 
 import android.app.AlertDialog;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.Spannable;
+import android.text.SpannableStringBuilder;
+import android.text.style.ForegroundColorSpan;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -26,6 +30,8 @@ import com.yagay.ypower.xposed.XposedBridgeManager;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class DiagnosticActivity extends AppCompatActivity {
     private String packageName;
@@ -209,13 +215,36 @@ public class DiagnosticActivity extends AppCompatActivity {
     private void render() {
         if (lastReport == null) return;
         int mode = viewSpinner.getSelectedItemPosition();
-        output.setText(mode == 0
+        String text = mode == 0
                 ? lastReport.simpleText()
                 : mode == 1
                 ? lastReport.detailedText()
                 : mode == 2
                 ? lastReport.recommendationText()
-                : lastReport.rawText());
+                : lastReport.rawText();
+
+        output.setText(styleDetectionStates(text));
+    }
+
+    private CharSequence styleDetectionStates(String text) {
+        SpannableStringBuilder styled = new SpannableStringBuilder(text);
+
+        Pattern pattern = Pattern.compile("(?:应用检测状态：|检测状态=)([^\\s\\n]+)");
+        Matcher matcher = pattern.matcher(text);
+
+        while (matcher.find()) {
+            String value = matcher.group(1);
+            if ("false".equalsIgnoreCase(value)) continue;
+
+            styled.setSpan(
+                    new ForegroundColorSpan(Color.RED),
+                    matcher.start(1),
+                    matcher.end(1),
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            );
+        }
+
+        return styled;
     }
 
     private void exportReport() {
