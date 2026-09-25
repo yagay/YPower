@@ -57,6 +57,26 @@ public final class DetectionRuleIds {
     public static final String RXJAVA2_ERROR_HANDLER_SET = "RXJAVA2_ERROR_HANDLER_SET";
     public static final String RXJAVA3_ERROR_HANDLER_SET = "RXJAVA3_ERROR_HANDLER_SET";
 
+    public static final String KERNEL_UNAME_QUERY = "KERNEL_UNAME_QUERY";
+    public static final String KERNEL_PROC_VERSION = "KERNEL_PROC_VERSION";
+    public static final String KERNEL_CMDLINE_QUERY = "KERNEL_CMDLINE_QUERY";
+    public static final String KERNEL_OSRELEASE_QUERY = "KERNEL_OSRELEASE_QUERY";
+    public static final String KERNEL_SYS_VERSION_QUERY = "KERNEL_SYS_VERSION_QUERY";
+    public static final String KERNEL_KPTR_QUERY = "KERNEL_KPTR_QUERY";
+
+    public static final String SELINUX_ENFORCE_READ = "SELINUX_ENFORCE_READ";
+    public static final String SELINUX_CONTEXT_READ = "SELINUX_CONTEXT_READ";
+    public static final String SELINUX_POLICY_READ = "SELINUX_POLICY_READ";
+    public static final String SELINUX_XATTR_QUERY = "SELINUX_XATTR_QUERY";
+
+    public static final String MEMORY_SMAPS_QUERY = "MEMORY_SMAPS_QUERY";
+    public static final String MEMORY_FD_QUERY = "MEMORY_FD_QUERY";
+    public static final String MEMORY_TASK_QUERY = "MEMORY_TASK_QUERY";
+    public static final String MEMORY_LINKER_ENUM_QUERY = "MEMORY_LINKER_ENUM_QUERY";
+    public static final String MEMORY_SIGNAL_QUERY = "MEMORY_SIGNAL_QUERY";
+    public static final String MEMORY_VDSO_QUERY = "MEMORY_VDSO_QUERY";
+    public static final String MEMORY_MPROTECT_QUERY = "MEMORY_MPROTECT_QUERY";
+
     public static String forPath(String value) {
         String s = lower(value);
 
@@ -68,8 +88,19 @@ public final class DetectionRuleIds {
                 || s.equals("/sbin/su")) {
             return ROOT_FILE_SU;
         }
+        if (s.contains("/proc/self/smaps")) return MEMORY_SMAPS_QUERY;
         if (s.contains("/proc/self/maps")) return HOOK_PROC_MAPS;
         if (s.contains("/proc/self/status")) return DEBUG_PROC_STATUS;
+        if (s.contains("/proc/self/fd") || s.matches(".*/proc/[0-9]+/fd(/.*)?")) return MEMORY_FD_QUERY;
+        if (s.contains("/proc/self/task") || s.matches(".*/proc/[0-9]+/task(/.*)?")) return MEMORY_TASK_QUERY;
+        if (s.equals("/proc/version")) return KERNEL_PROC_VERSION;
+        if (s.equals("/proc/cmdline")) return KERNEL_CMDLINE_QUERY;
+        if (s.equals("/proc/sys/kernel/osrelease")) return KERNEL_OSRELEASE_QUERY;
+        if (s.equals("/proc/sys/kernel/version")) return KERNEL_SYS_VERSION_QUERY;
+        if (s.equals("/proc/sys/kernel/kptr_restrict")) return KERNEL_KPTR_QUERY;
+        if (s.equals("/sys/fs/selinux/enforce")) return SELINUX_ENFORCE_READ;
+        if (s.equals("/proc/self/attr/current")) return SELINUX_CONTEXT_READ;
+        if (s.startsWith("/sys/fs/selinux/")) return SELINUX_POLICY_READ;
         if (s.contains("mountinfo") || s.contains("/proc/mount")) return MOUNT_PROC_MOUNT;
         if (s.contains("/data/adb")) return ROOT_DATA_ADB;
         return UNKNOWN;
