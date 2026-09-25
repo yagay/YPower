@@ -25,6 +25,17 @@ public class DiagnosticReport {
     public String exitSource = "";
     public String exitStack = "";
     public String exitRuleId = "";
+
+    public long fatalExceptionTimestamp;
+    public int fatalExceptionPid = -1;
+    public int fatalExceptionTid = -1;
+    public String fatalExceptionThread = "";
+    public String fatalExceptionClass = "";
+    public String fatalExceptionMessage = "";
+    public String fatalThrowableId = "";
+    public String fatalExceptionStack = "";
+    public final List<String> exceptionPropagation = new ArrayList<>();
+
     public int observedEventCount;
     public String exitSummary = "";
     public String attribution = "";
@@ -64,6 +75,12 @@ public class DiagnosticReport {
         }
 
         if (!exitSummary.isBlank()) b.append("退出：").append(exitSummary).append('\n');
+        if (fatalExceptionTimestamp > 0) {
+            b.append("Java Fatal：")
+                    .append(fatalExceptionClass)
+                    .append(fatalExceptionMessage.isBlank() ? "" : " · " + fatalExceptionMessage)
+                    .append('\n');
+        }
         if (!attribution.isBlank()) b.append("归因：").append(attribution).append('\n');
         if (!exitSummary.isBlank() || !attribution.isBlank()) b.append('\n');
 
@@ -148,6 +165,14 @@ public class DiagnosticReport {
             }
             b.append('\n');
         }
+        if (!exceptionPropagation.isEmpty()) {
+            b.append("异常传播链：\n");
+            for (String item : exceptionPropagation) {
+                b.append("• ").append(item).append('\n');
+            }
+            b.append('\n');
+        }
+
         if (!linkerMappings.isEmpty()) {
             b.append("JNI / Linker 映射：\n");
             for (String mapping : linkerMappings) {
@@ -225,6 +250,17 @@ public class DiagnosticReport {
             o.put("exitSource", exitSource);
             o.put("exitStack", exitStack);
             o.put("exitRuleId", exitRuleId);
+            o.put("fatalExceptionTimestamp", fatalExceptionTimestamp);
+            o.put("fatalExceptionPid", fatalExceptionPid);
+            o.put("fatalExceptionTid", fatalExceptionTid);
+            o.put("fatalExceptionThread", fatalExceptionThread);
+            o.put("fatalExceptionClass", fatalExceptionClass);
+            o.put("fatalExceptionMessage", fatalExceptionMessage);
+            o.put("fatalThrowableId", fatalThrowableId);
+            o.put("fatalExceptionStack", fatalExceptionStack);
+            JSONArray ep = new JSONArray();
+            for (String item : exceptionPropagation) ep.put(item);
+            o.put("exceptionPropagation", ep);
             o.put("exitSummary", exitSummary);
             o.put("attribution", attribution);
             o.put("perfettoTracePath", perfettoTracePath);
