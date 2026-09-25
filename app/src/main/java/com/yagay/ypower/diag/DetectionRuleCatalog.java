@@ -131,6 +131,22 @@ public final class DetectionRuleCatalog {
         addExit(DetectionRuleIds.EXIT_NATIVE_ABORT, "Native abort 主动退出");
         addExit(DetectionRuleIds.EXIT_NATIVE_EXIT, "Native exit/_exit 主动退出");
         addExit(DetectionRuleIds.EXIT_NATIVE_KILL, "Native kill/tgkill 主动退出");
+
+        add(DetectionRuleIds.JAVA_LOAD_LIBRARY, "instrumentation", "Java Native 库加载",
+                "应用通过 System.load/System.loadLibrary 加载 native 库；这能建立 Java 调用栈到 SO 的入口映射。",
+                "这是诊断映射事件，不是安全检测命中。与 dlopen 事件按时间/TID 对齐后，可帮助定位 Java→JNI→SO 的调用关系。",
+                "用于解释调用链，不作为安全风险归因项。",
+                "Android Runtime / JNI loading");
+        add(DetectionRuleIds.LINKER_DLOPEN, "instrumentation", "Native dlopen 库加载",
+                "目标进程在 native 层动态加载 SO。",
+                "ByteHook 的 dlopen callback 能观察后续加载的 ELF，并帮助把检测调用归到具体模块。",
+                "用于模块映射和调用链解释，不作为安全风险归因项。",
+                "ByteHook dlopen callback");
+        add(DetectionRuleIds.LINKER_DLSYM, "instrumentation", "Native dlsym 符号解析",
+                "目标进程解析 JNI_OnLoad、Java_*、RegisterNatives 或安全相关 native 符号。",
+                "dlsym 记录可以补充 native 符号解析路径，但并不能覆盖所有 RegisterNatives 间接调用。",
+                "用于 JNI/Linker 映射，不作为安全风险归因项。",
+                "Android linker / ByteHook");
     }
 
     private DetectionRuleCatalog() {}
@@ -249,7 +265,10 @@ public final class DetectionRuleCatalog {
                 || DetectionRuleIds.CMD_GETPROP.equals(id)
                 || DetectionRuleIds.CMD_MOUNT.equals(id)
                 || DetectionRuleIds.CMD_SELINUX.equals(id)
-                || DetectionRuleIds.NATIVE_PTRACE.equals(id);
+                || DetectionRuleIds.NATIVE_PTRACE.equals(id)
+                || DetectionRuleIds.JAVA_LOAD_LIBRARY.equals(id)
+                || DetectionRuleIds.LINKER_DLOPEN.equals(id)
+                || DetectionRuleIds.LINKER_DLSYM.equals(id);
     }
 
     private static boolean isBooleanRule(String id) {
