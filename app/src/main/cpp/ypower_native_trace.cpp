@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cinttypes>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -253,6 +254,86 @@ static bool caller_allow_filter(const char *caller_path_name, void *) {
     return true;
 }
 
+static bool interesting_symbol(const char *symbol) {
+    if (symbol == nullptr) return false;
+    std::string s(symbol);
+    if (s.rfind("Java_", 0) == 0) return true;
+    if (s.find("JNI_OnLoad") != std::string::npos) return true;
+    if (s.find("RegisterNatives") != std::string::npos) return true;
+
+    std::string lower = s;
+    for (char &ch : lower) ch = static_cast<char>(tolower(ch));
+
+    return lower.find("root") != std::string::npos
+            || lower.find("debug") != std::string::npos
+            || lower.find("security") != std::string::npos
+            || lower.find("integrity") != std::string::npos
+            || lower.find("attest") != std::string::npos
+            || lower.find("check") != std::string::npos;
+}
+
+static void dlopen_pre_callback(const char *filename, void *) {
+    if (filename == nullptr || !g_enabled.load(std::memory_order_relaxed)) return;
+    emit_event(
+            "native_linker",
+            "LINKER_DLOPEN",
+            std::string("dlopen ") + filename,
+            "begin",
+            false,
+            "",
+            caller_source(),
+            0
+    );
+}
+
+static void dlopen_post_callback(const char *filename, int result, void *) {
+    if (filename == nullptr || !g_enabled.load(std::memory_order_relaxed)) return;
+    emit_event(
+            "native_linker",
+            "LINKER_DLOPEN",
+            std::string("dlopen ") + filename,
+            result == 0 ? "loaded" : "failed",
+            false,
+            result == 0 ? "" : "dlopen failed",
+            caller_source(),
+            0
+    );
+}
+
+static void *proxy_dlsym(void *handle, const char *symbol) {
+    BYTEHOOK_STACK_SCOPE();
+    int64_t start = now_ns_monotonic();
+    std::string source = caller_source();
+
+    void *ret = BYTEHOOK_CALL_PREV(proxy_dlsym, handle, symbol);
+    int saved_errno = errno;
+
+    if (interesting_symbol(symbol)) {
+        std::string result;
+        if (ret == nullptr) {
+            result = "null";
+        } else {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%p", ret);
+            result = buf;
+        }
+
+        emit_event(
+                "native_linker",
+                "LINKER_DLSYM",
+                std::string("dlsym ") + (symbol == nullptr ? "" : symbol),
+                result,
+                false,
+                ret == nullptr ? errno_text(saved_errno) : "",
+                source,
+                now_ns_monotonic() - start
+        );
+    }
+
+    errno = saved_errno;
+    return ret;
+}
+
 static int proxy_access(const char *pathname, int mode) {
     BYTEHOOK_STACK_SCOPE();
     int64_t start = now_ns_monotonic();
@@ -492,11 +573,14 @@ static int proxy_tgkill(int tgid, int tid, int sig) {
     return BYTEHOOK_CALL_PREV(proxy_tgkill, tgid, tid, sig);
 }
 
-static void add_hook(const char *symbol, void *proxy) {
+static void add_hook_for_library(
+        const char *callee,
+        const char *symbol,
+        void *proxy) {
     bytehook_stub_t stub = bytehook_hook_partial(
             caller_allow_filter,
             nullptr,
-            "libc.so",
+            callee,
             symbol,
             proxy,
             nullptr,
@@ -505,6 +589,10 @@ static void add_hook(const char *symbol, void *proxy) {
     if (stub != nullptr) {
         g_stubs.push_back(stub);
     }
+}
+
+static void add_hook(const char *symbol, void *proxy) {
+    add_hook_for_library("libc.so", symbol, proxy);
 }
 
 static void install_hooks_locked() {
@@ -521,11 +609,14 @@ static void install_hooks_locked() {
     add_hook("_exit", reinterpret_cast<void *>(proxy__exit));
     add_hook("kill", reinterpret_cast<void *>(proxy_kill));
     add_hook("tgkill", reinterpret_cast<void *>(proxy_tgkill));
+    add_hook_for_library("libdl.so", "dlsym", reinterpret_cast<void *>(proxy_dlsym));
+    bytehook_add_dlopen_callback(dlopen_pre_callback, dlopen_post_callback, nullptr);
 
     g_hooks_installed = true;
 }
 
 static void uninstall_hooks_locked() {
+    bytehook_del_dlopen_callback(dlopen_pre_callback, dlopen_post_callback, nullptr);
     for (bytehook_stub_t stub : g_stubs) {
         if (stub != nullptr) bytehook_unhook(stub);
     }
