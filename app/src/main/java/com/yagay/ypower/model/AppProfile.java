@@ -30,6 +30,7 @@ public class AppProfile {
     public boolean tracePermissions;
     public boolean traceDebugger;
     public boolean traceExceptions;
+    public boolean traceSecurityApis;
     public boolean traceNative;
     public boolean traceSyscalls;
     public boolean traceStacks = true;
@@ -47,7 +48,8 @@ public class AppProfile {
 
     public boolean anyTraceEnabled() {
         return tracePackageScan || traceFiles || traceCommands || traceProperties
-                || tracePermissions || traceDebugger || traceExceptions || traceNative;
+                || tracePermissions || traceDebugger || traceExceptions
+                || traceSecurityApis || traceNative;
     }
 
     public JSONObject toJson() {
@@ -69,6 +71,7 @@ public class AppProfile {
             o.put("tracePermissions", tracePermissions);
             o.put("traceDebugger", traceDebugger);
             o.put("traceExceptions", traceExceptions);
+            o.put("traceSecurityApis", traceSecurityApis);
             o.put("traceNative", traceNative);
             o.put("traceSyscalls", traceSyscalls);
             o.put("traceStacks", traceStacks);
@@ -109,6 +112,7 @@ public class AppProfile {
             p.tracePermissions = o.optBoolean("tracePermissions", false);
             p.traceDebugger = o.optBoolean("traceDebugger", false);
             p.traceExceptions = o.optBoolean("traceExceptions", false);
+            p.traceSecurityApis = o.optBoolean("traceSecurityApis", false);
             p.traceNative = o.optBoolean("traceNative", false);
             p.traceSyscalls = o.optBoolean("traceSyscalls", false);
             p.traceStacks = o.optBoolean("traceStacks", true);
