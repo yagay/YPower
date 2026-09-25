@@ -18,7 +18,9 @@ import com.yagay.ypower.hook.provider.IdentityHookProvider;
 import com.yagay.ypower.hook.provider.PackageScanHookProvider;
 import com.yagay.ypower.hook.provider.PermissionHookProvider;
 import com.yagay.ypower.hook.provider.PropertyTraceHookProvider;
+import com.yagay.ypower.diag.DetectionRuleCatalog;
 import com.yagay.ypower.model.AppProfile;
+import com.yagay.ypower.model.DetectionHitState;
 
 import org.json.JSONArray;
 
@@ -27,6 +29,7 @@ import java.io.FileInputStream;
 import java.io.RandomAccessFile;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -278,6 +281,7 @@ public final class YPowerModule extends XposedModule {
                     String input = collectArgs(method, chain);
                     String specificRule = DetectionRuleIds.forPackage(input);
                     boolean enumeration = isEnumerationMethod(name);
+
                     if (!enumeration && DetectionRuleIds.UNKNOWN.equals(specificRule)) {
                         return chain.proceed();
                     }
@@ -286,40 +290,56 @@ public final class YPowerModule extends XposedModule {
                     try {
                         Object result = chain.proceed();
 
-                        String foundPackage = enumeration
-                                ? firstSensitivePackage(result)
-                                : firstSensitivePackage(input);
+                        if (enumeration) {
+                            traceCall(
+                                    profile,
+                                    "package",
+                                    DetectionRuleIds.PACKAGE_ENUMERATION,
+                                    name + " " + input,
+                                    summarizeResult(result),
+                                    false,
+                                    "",
+                                    "ApplicationPackageManager." + name,
+                                    startNs,
+                                    false
+                            );
 
-                        String ruleId;
-                        if (!foundPackage.isEmpty()) {
-                            ruleId = DetectionRuleIds.forPackage(foundPackage);
-                        } else if (!DetectionRuleIds.UNKNOWN.equals(specificRule)) {
-                            ruleId = specificRule;
+                            for (String foundPackage : sensitivePackages(result)) {
+                                String ruleId = DetectionRuleIds.forPackage(foundPackage);
+                                traceCall(
+                                        profile,
+                                        "package",
+                                        ruleId,
+                                        name + " matched=" + foundPackage,
+                                        foundPackage,
+                                        true,
+                                        "",
+                                        "ApplicationPackageManager." + name,
+                                        startNs,
+                                        false
+                                );
+                            }
                         } else {
-                            ruleId = DetectionRuleIds.PACKAGE_ENUMERATION;
+                            traceCall(
+                                    profile,
+                                    "package",
+                                    specificRule,
+                                    name + " " + input,
+                                    summarizeResult(result),
+                                    result != null,
+                                    "",
+                                    "ApplicationPackageManager." + name,
+                                    startNs,
+                                    false
+                            );
                         }
 
-                        boolean matched = !foundPackage.isEmpty()
-                                || (!DetectionRuleIds.UNKNOWN.equals(specificRule) && result != null);
-
-                        traceCall(
-                                profile,
-                                "package",
-                                ruleId,
-                                name + " " + input,
-                                summarizeResult(result),
-                                matched,
-                                "",
-                                "ApplicationPackageManager." + name,
-                                startNs,
-                                false
-                        );
                         return result;
                     } catch (Throwable t) {
                         traceCall(
                                 profile,
                                 "package",
-                                DetectionRuleIds.UNKNOWN.equals(specificRule)
+                                enumeration
                                         ? DetectionRuleIds.PACKAGE_ENUMERATION
                                         : specificRule,
                                 name + " " + input,
@@ -887,22 +907,19 @@ public final class YPowerModule extends XposedModule {
         return args.toString();
     }
 
-    private static String firstSensitivePackage(Object result) {
-        if (!(result instanceof List<?>)) return "";
+    private static List<String> sensitivePackages(Object result) {
+        List<String> found = new ArrayList<>();
+        if (!(result instanceof List<?>)) return found;
+
         for (Object item : (List<?>) result) {
             String pkg = packageNameOf(item);
-            if (!DetectionRuleIds.UNKNOWN.equals(DetectionRuleIds.forPackage(pkg))) {
-                return pkg;
+            if (!pkg.isBlank()
+                    && !DetectionRuleIds.UNKNOWN.equals(DetectionRuleIds.forPackage(pkg))
+                    && !found.contains(pkg)) {
+                found.add(pkg);
             }
         }
-        return "";
-    }
-
-    private static String firstSensitivePackage(String input) {
-        if (!DetectionRuleIds.UNKNOWN.equals(DetectionRuleIds.forPackage(input))) {
-            return input;
-        }
-        return "";
+        return found;
     }
 
     private static String packageNameOf(Object item) {
@@ -1009,6 +1026,13 @@ public final class YPowerModule extends XposedModule {
                 ? ""
                 : profile.diagnosticSessionId;
 
+        DetectionHitState hitState = DetectionRuleCatalog.evaluate(
+                ruleId,
+                matched,
+                result,
+                exception
+        );
+
         String json = "{\"ts\":" + ts
                 + ",\"package\":\"" + escapeJson(activePackageName) + "\""
                 + ",\"sessionId\":\"" + escapeJson(sessionId) + "\""
@@ -1018,6 +1042,7 @@ public final class YPowerModule extends XposedModule {
                 + ",\"value\":\"" + escapeJson(input) + "\""
                 + ",\"result\":\"" + escapeJson(result) + "\""
                 + ",\"matched\":" + matched
+                + ",\"hitState\":\"" + hitState.name() + "\""
                 + ",\"exception\":\"" + escapeJson(exception) + "\""
                 + ",\"source\":\"" + escapeJson(source) + "\""
                 + ",\"pid\":" + pid
