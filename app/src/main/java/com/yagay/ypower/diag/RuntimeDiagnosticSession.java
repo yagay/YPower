@@ -26,8 +26,11 @@ public final class RuntimeDiagnosticSession {
 
         AppProfile original = store.getProfile(packageName);
 
+        String sessionId = packageName + "-" + Long.toHexString(System.currentTimeMillis());
+
         AppProfile tracing = AppProfile.fromJson(original.toJson().toString(), packageName);
         tracing.enabled = true;
+        tracing.diagnosticSessionId = sessionId;
         tracing.tracePackageScan = true;
         tracing.traceFiles = true;
         tracing.traceCommands = true;
@@ -50,6 +53,7 @@ public final class RuntimeDiagnosticSession {
                 .putLong(key(packageName, "start"), startMs)
                 .putLong(key(packageName, "end"), 0L)
                 .putString(key(packageName, "level"), level.name())
+                .putString(key(packageName, "sessionId"), sessionId)
                 .putString(key(packageName, "original"), original.toJson().toString())
                 .apply();
 
@@ -97,6 +101,7 @@ public final class RuntimeDiagnosticSession {
         s.active = prefs.getBoolean(key(packageName, "active"), false);
         s.startMs = prefs.getLong(key(packageName, "start"), 0L);
         s.endMs = prefs.getLong(key(packageName, "end"), 0L);
+        s.sessionId = prefs.getString(key(packageName, "sessionId"), "");
         try {
             s.level = DiagnosticLevel.valueOf(
                     prefs.getString(key(packageName, "level"), DiagnosticLevel.STANDARD.name())
@@ -116,5 +121,6 @@ public final class RuntimeDiagnosticSession {
         public long startMs;
         public long endMs;
         public DiagnosticLevel level;
+        public String sessionId;
     }
 }
