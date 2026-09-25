@@ -13,6 +13,16 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+            }
+        }
     }
 
     buildTypes {
@@ -30,10 +40,19 @@ android {
     buildFeatures {
         viewBinding = false
         buildConfig = true
+        prefab = true
     }
 
     packaging {
         resources.excludes += setOf("META-INF/LICENSE*", "META-INF/NOTICE*")
+        jniLibs.pickFirsts += setOf("**/libbytehook.so")
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 
@@ -45,6 +64,7 @@ dependencies {
     implementation("com.github.topjohnwu.libsu:core:6.0.0")
     implementation("com.github.topjohnwu.libsu:service:6.0.0")
     implementation("com.github.topjohnwu.libsu:nio:6.0.0")
+    implementation("com.bytedance:bytehook:1.1.2")
 
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")
