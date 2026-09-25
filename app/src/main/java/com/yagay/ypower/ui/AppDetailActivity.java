@@ -98,6 +98,9 @@ public class AppDetailActivity extends AppCompatActivity {
         CheckBox debugger = addCheck(root, "调试器状态检测追踪", profile.traceDebugger);
         CheckBox exceptions = addCheck(root, "异常传播追踪（Java / Coroutine / RxJava，只观察）", profile.traceExceptions);
         CheckBox nativeTrace = addCheck(root, "Native 深度追踪（ByteHook，风险更高）", profile.traceNative);
+        CheckBox syscallTrace = addCheck(root,
+                "Raw syscall 实验追踪（strace/ptrace；可能触发反调试，默认关闭）",
+                profile.traceSyscalls);
         CheckBox stacks = addCheck(root, "记录短调用栈", profile.traceStacks);
 
         TextView note = new TextView(this);
@@ -124,6 +127,7 @@ public class AppDetailActivity extends AppCompatActivity {
             profile.traceDebugger = debugger.isChecked();
             profile.traceExceptions = exceptions.isChecked();
             profile.traceNative = nativeTrace.isChecked();
+            profile.traceSyscalls = syscallTrace.isChecked();
             profile.traceStacks = stacks.isChecked();
             profile.traceJava = profile.anyTraceEnabled();
             profile.traceEnvironment = profile.anyTraceEnabled();
