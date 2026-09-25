@@ -27,7 +27,10 @@ public class AppProfile {
     public boolean traceFiles;
     public boolean traceCommands;
     public boolean traceProperties;
+    public boolean tracePermissions;
+    public boolean traceDebugger;
     public boolean traceStacks = true;
+    public String diagnosticSessionId = "";
 
     // Legacy fields kept for profile migration.
     public boolean traceJava;
@@ -40,7 +43,8 @@ public class AppProfile {
     }
 
     public boolean anyTraceEnabled() {
-        return tracePackageScan || traceFiles || traceCommands || traceProperties;
+        return tracePackageScan || traceFiles || traceCommands || traceProperties
+                || tracePermissions || traceDebugger;
     }
 
     public JSONObject toJson() {
@@ -59,7 +63,10 @@ public class AppProfile {
             o.put("traceFiles", traceFiles);
             o.put("traceCommands", traceCommands);
             o.put("traceProperties", traceProperties);
+            o.put("tracePermissions", tracePermissions);
+            o.put("traceDebugger", traceDebugger);
             o.put("traceStacks", traceStacks);
+            o.put("diagnosticSessionId", diagnosticSessionId);
 
             // Write legacy aggregate flags for downgrade compatibility.
             o.put("traceJava", anyTraceEnabled());
@@ -93,7 +100,10 @@ public class AppProfile {
             p.traceFiles = o.has("traceFiles") ? o.optBoolean("traceFiles", false) : legacyTrace;
             p.traceCommands = o.has("traceCommands") ? o.optBoolean("traceCommands", false) : legacyTrace;
             p.traceProperties = o.has("traceProperties") ? o.optBoolean("traceProperties", false) : legacyTrace;
+            p.tracePermissions = o.optBoolean("tracePermissions", false);
+            p.traceDebugger = o.optBoolean("traceDebugger", false);
             p.traceStacks = o.optBoolean("traceStacks", true);
+            p.diagnosticSessionId = o.optString("diagnosticSessionId", "");
             p.traceJava = legacyTrace;
             p.traceEnvironment = legacyTrace;
 
