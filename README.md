@@ -236,3 +236,34 @@ YPower 不再把所有运行时事件简化成 matched=true/false。每条规则
 YPower 会把相同 Throwable identity 的 Coroutine/RxJava 事件与 Java uncaught 直接串联；如果 identity 不同但同 TID 且时间紧邻，也会记录弱传播关系。
 
 安全规则的归因不会被异常事件取代：error 类 finding 不参与主要/次要安全原因竞争，而是作为中间证据。安全检测与 Java Fatal 同线程、时间紧邻或共享业务调用栈时，会获得额外的“检测 → 异常 → 退出”因果分。
+
+
+### DuckDetector 补盲监控
+
+参考 DuckDetector 当前公开源码后，YPower 新增了一批“目标 App 实际检查行为”观察点，而不是把 Duck 的主动设备扫描照搬进来。
+
+新增 Native/路径监控：
+
+- Native property：`__system_property_get`，继续映射到 `PROP_VERIFIED_BOOT`、`PROP_VBMETA_STATE`、`PROP_DEBUGGABLE` 等现有 Rule ID。
+- Kernel：`uname`、`/proc/version`、`/proc/cmdline`、`/proc/sys/kernel/osrelease`、`/proc/sys/kernel/version`、`kptr_restrict`。
+- SELinux：`/sys/fs/selinux/*`、`/proc/self/attr/current`、`getxattr/lgetxattr` 的 SELinux 属性查询。
+- Memory/Zygisk 风格检查：`/proc/self/smaps`、`/proc/self/fd`、`/proc/self/task`、`sigaction`、`getauxval(AT_SYSINFO_EHDR)`、`mprotect(PROT_EXEC)`、`dl_iterate_phdr`。
+- libc 文件入口补齐：`open`、`openat`、`opendir`，与已有 access/fopen/stat/lstat/readlink 一起工作。
+
+这些规则默认属于 CHECKED，除非有明确返回值能证明具体风险状态；读取一个 proc/SELinux 文件本身不会直接变成 HIT。
+
+### Raw syscall 实验模式
+
+目标 App 设置中新增：
+
+`Raw syscall 实验追踪（strace/ptrace；可能触发反调试，默认关闭）`
+
+只有在：
+
+- 诊断级别为“深度”；
+- 用户显式打开该 App 的 raw syscall 开关；
+- 设备有 root 且存在 strace；
+
+时才启动。当前观察 openat/readlinkat/ptrace/prctl/ioctl/mmap/mprotect/execve/kill/tgkill，并保存 `syscall-trace.txt`。
+
+因为 strace 本身使用 ptrace，可能改变 TracerPid 或触发目标 App 的反调试逻辑，所以它只作为实验验证层，不参与默认诊断。
