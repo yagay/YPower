@@ -44,6 +44,9 @@ public final class DetectionRuleIds {
     public static final String EXIT_NATIVE_ABORT = "EXIT_NATIVE_ABORT";
     public static final String EXIT_NATIVE_EXIT = "EXIT_NATIVE_EXIT";
     public static final String EXIT_NATIVE_KILL = "EXIT_NATIVE_KILL";
+    public static final String JAVA_LOAD_LIBRARY = "JAVA_LOAD_LIBRARY";
+    public static final String LINKER_DLOPEN = "LINKER_DLOPEN";
+    public static final String LINKER_DLSYM = "LINKER_DLSYM";
 
     public static String forPath(String value) {
         String s = lower(value);
