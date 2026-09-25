@@ -46,6 +46,9 @@ public class DiagnosticReport {
     public long simpleperfDataBytes;
     public String simpleperfReportPath = "";
     public String simpleperfSummary = "";
+    public String syscallTracePath = "";
+    public long syscallTraceBytes;
+    public String syscallSummary = "";
     public final List<String> linkerMappings = new ArrayList<>();
 
     public final List<DiagnosticFinding> findings = new ArrayList<>();
@@ -94,6 +97,11 @@ public class DiagnosticReport {
             if (!simpleperfDataPath.isBlank()) {
                 b.append("• simpleperf：")
                         .append(simpleperfDataBytes)
+                        .append(" bytes\n");
+            }
+            if (!syscallTracePath.isBlank()) {
+                b.append("• Raw syscall（实验）：")
+                        .append(syscallTraceBytes)
                         .append(" bytes\n");
             }
             b.append('\n');
@@ -207,6 +215,9 @@ public class DiagnosticReport {
         if (!simpleperfReportPath.isBlank()) {
             b.append("simpleperf 报告：").append(simpleperfReportPath).append('\n');
         }
+        if (!syscallTracePath.isBlank()) {
+            b.append("Raw syscall（实验）：").append(syscallTracePath).append('\n');
+        }
 
         return b.toString();
     }
@@ -282,6 +293,9 @@ public class DiagnosticReport {
             o.put("simpleperfDataBytes", simpleperfDataBytes);
             o.put("simpleperfReportPath", simpleperfReportPath);
             o.put("simpleperfSummary", simpleperfSummary);
+            o.put("syscallTracePath", syscallTracePath);
+            o.put("syscallTraceBytes", syscallTraceBytes);
+            o.put("syscallSummary", syscallSummary);
             JSONArray lm = new JSONArray();
             for (String mapping : linkerMappings) lm.put(mapping);
             o.put("linkerMappings", lm);
