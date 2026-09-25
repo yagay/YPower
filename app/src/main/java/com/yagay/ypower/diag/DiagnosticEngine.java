@@ -261,6 +261,8 @@ public final class DiagnosticEngine {
             }
         }
 
+        addCompositeSecurityFlows(events, findings, report);
+
         for (DiagnosticFinding finding : findings.values()) {
             finding.summary = finding.summary
                     + "；本次运行 " + finding.totalCount + " 次"
@@ -270,6 +272,188 @@ public final class DiagnosticEngine {
                     + " / UNKNOWN " + finding.unknownCount + "）";
             report.findings.add(finding);
         }
+    }
+
+    private static void addCompositeSecurityFlows(
+            List<LogEventParser.TraceEvent> events,
+            Map<String, DiagnosticFinding> findings,
+            DiagnosticReport report
+    ) {
+        addCompositeFlow(
+                events,
+                findings,
+                report,
+                DetectionRuleIds.ATTESTATION_FLOW,
+                2,
+                5000,
+                new String[]{
+                        DetectionRuleIds.KEY_ATTESTATION_CHALLENGE,
+                        DetectionRuleIds.KEY_STRONGBOX_REQUEST,
+                        DetectionRuleIds.KEY_CERT_CHAIN_QUERY,
+                        DetectionRuleIds.KEY_SECURITY_LEVEL_QUERY
+                }
+        );
+
+        addCompositeFlow(
+                events,
+                findings,
+                report,
+                DetectionRuleIds.PLAY_INTEGRITY_FLOW,
+                2,
+                8000,
+                new String[]{
+                        DetectionRuleIds.PLAY_INTEGRITY_REQUEST,
+                        DetectionRuleIds.PLAY_INTEGRITY_STANDARD_PREPARE,
+                        DetectionRuleIds.PLAY_INTEGRITY_STANDARD_REQUEST,
+                        DetectionRuleIds.PLAY_INTEGRITY_TOKEN_QUERY
+                }
+        );
+
+        addCompositeFlow(
+                events,
+                findings,
+                report,
+                DetectionRuleIds.DIRTY_SEPOLICY_FLOW,
+                2,
+                4000,
+                new String[]{
+                        DetectionRuleIds.SELINUX_CONTEXT_READ,
+                        DetectionRuleIds.SELINUX_ACCESS_PROBE,
+                        DetectionRuleIds.SELINUX_STATUS_SEQNO,
+                        DetectionRuleIds.SELINUX_POLICYLOAD_QUERY
+                }
+        );
+
+        addCompositeFlow(
+                events,
+                findings,
+                report,
+                DetectionRuleIds.ZYGISK_PTRACE_FLOW,
+                3,
+                5000,
+                new String[]{
+                        DetectionRuleIds.PROCESS_FORK_QUERY,
+                        DetectionRuleIds.PROCESS_WAITPID_QUERY,
+                        DetectionRuleIds.PTRACE_ATTACH_QUERY,
+                        DetectionRuleIds.PTRACE_EVENTMSG_QUERY,
+                        DetectionRuleIds.PTRACE_DETACH_QUERY
+                }
+        );
+
+        addCompositeFlow(
+                events,
+                findings,
+                report,
+                DetectionRuleIds.SELF_INTEGRITY_FLOW,
+                2,
+                5000,
+                new String[]{
+                        DetectionRuleIds.APP_SIGNATURE_QUERY,
+                        DetectionRuleIds.SELF_APK_READ,
+                        DetectionRuleIds.SELF_DEX_READ,
+                        DetectionRuleIds.SELF_SO_READ,
+                        DetectionRuleIds.CERTIFICATE_DIGEST_QUERY
+                }
+        );
+    }
+
+    private static void addCompositeFlow(
+            List<LogEventParser.TraceEvent> events,
+            Map<String, DiagnosticFinding> findings,
+            DiagnosticReport report,
+            String flowRuleId,
+            int minDistinctRules,
+            long maxWindowMs,
+            String[] componentRules
+    ) {
+        List<LogEventParser.TraceEvent> matched = new ArrayList<>();
+        List<String> distinct = new ArrayList<>();
+
+        for (LogEventParser.TraceEvent event : events) {
+            boolean belongs = false;
+            for (String rule : componentRules) {
+                if (rule.equals(event.ruleId)) {
+                    belongs = true;
+                    if (!distinct.contains(rule)) distinct.add(rule);
+                    break;
+                }
+            }
+            if (belongs) matched.add(event);
+        }
+
+        if (distinct.size() < minDistinctRules || matched.size() < minDistinctRules) return;
+
+        matched.sort(Comparator.comparingLong(e -> e.ts));
+
+        int bestStart = -1;
+        int bestEnd = -1;
+        int bestDistinct = 0;
+
+        for (int start = 0; start < matched.size(); start++) {
+            List<String> windowDistinct = new ArrayList<>();
+            for (int end = start; end < matched.size(); end++) {
+                long window = matched.get(end).ts - matched.get(start).ts;
+                if (window > maxWindowMs) break;
+
+                String rule = matched.get(end).ruleId;
+                if (!windowDistinct.contains(rule)) windowDistinct.add(rule);
+
+                if (windowDistinct.size() >= minDistinctRules
+                        && windowDistinct.size() > bestDistinct) {
+                    bestDistinct = windowDistinct.size();
+                    bestStart = start;
+                    bestEnd = end;
+                }
+            }
+        }
+
+        if (bestStart < 0 || bestEnd < bestStart) return;
+
+        DetectionRuleDefinition def = DetectionRuleCatalog.get(flowRuleId);
+        if (def == null) return;
+
+        LogEventParser.TraceEvent first = matched.get(bestStart);
+        LogEventParser.TraceEvent last = matched.get(bestEnd);
+
+        DiagnosticFinding finding = new DiagnosticFinding(
+                "runtime." + flowRuleId,
+                def.category,
+                def.title,
+                DiagnosticStatus.DETECTED,
+                def.whyDetected
+        );
+        finding.ruleId = flowRuleId;
+        finding.representativeState = DetectionHitState.CHECKED;
+        finding.totalCount = bestEnd - bestStart + 1;
+        finding.checkedCount = finding.totalCount;
+        finding.closestEventTimestamp = last.ts;
+        finding.closestDeltaMs = report.lastExitTimestamp > 0 && last.ts <= report.lastExitTimestamp
+                ? report.lastExitTimestamp - last.ts
+                : Long.MAX_VALUE;
+        finding.pid = last.pid;
+        finding.tid = last.tid;
+        finding.thread = last.thread;
+        finding.source = "YPowerCompositeFlow";
+        finding.input = "window=" + (last.ts - first.ts) + "ms"
+                + " distinctRules=" + bestDistinct;
+        finding.result = "CHECKED";
+        finding.stack = last.stack;
+
+        StringBuilder evidence = new StringBuilder();
+        for (int i = bestStart; i <= bestEnd; i++) {
+            LogEventParser.TraceEvent event = matched.get(i);
+            if (evidence.length() > 0) evidence.append("\n");
+            evidence.append(formatTime(event.ts))
+                    .append(" ")
+                    .append(event.ruleId)
+                    .append(" @ ")
+                    .append(event.source)
+                    .append(" tid=")
+                    .append(event.tid);
+        }
+        finding.evidence("组合链：\n" + evidence);
+
+        findings.put(flowRuleId + "|" + def.category, finding);
     }
 
     private static void buildExceptionPropagation(
