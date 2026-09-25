@@ -52,7 +52,13 @@ public final class RuntimeDiagnosticSession {
         }
 
         SystemTraceCollector.CaptureState capture =
-                SystemTraceCollector.start(app, packageName, sessionId, level);
+                SystemTraceCollector.start(
+                        app,
+                        packageName,
+                        sessionId,
+                        level,
+                        original.traceSyscalls
+                );
 
         long startMs = System.currentTimeMillis();
         SharedPreferences.Editor editor = prefs.edit()
@@ -139,6 +145,11 @@ public final class RuntimeDiagnosticSession {
         editor.putInt(key(packageName, "simpleperfPid"), capture.simpleperfPid);
         editor.putString(key(packageName, "simpleperfTempPath"), capture.simpleperfTempPath);
         editor.putString(key(packageName, "simpleperfLogPath"), capture.simpleperfLogPath);
+        editor.putBoolean(key(packageName, "syscallAvailable"), capture.syscallAvailable);
+        editor.putBoolean(key(packageName, "syscallStarted"), capture.syscallStarted);
+        editor.putInt(key(packageName, "syscallPid"), capture.syscallPid);
+        editor.putString(key(packageName, "syscallTempPath"), capture.syscallTempPath);
+        editor.putString(key(packageName, "syscallLogPath"), capture.syscallLogPath);
         editor.putString(key(packageName, "traceTempDir"), capture.tempDir);
     }
 
@@ -159,6 +170,11 @@ public final class RuntimeDiagnosticSession {
         capture.simpleperfPid = prefs.getInt(key(packageName, "simpleperfPid"), -1);
         capture.simpleperfTempPath = prefs.getString(key(packageName, "simpleperfTempPath"), "");
         capture.simpleperfLogPath = prefs.getString(key(packageName, "simpleperfLogPath"), "");
+        capture.syscallAvailable = prefs.getBoolean(key(packageName, "syscallAvailable"), false);
+        capture.syscallStarted = prefs.getBoolean(key(packageName, "syscallStarted"), false);
+        capture.syscallPid = prefs.getInt(key(packageName, "syscallPid"), -1);
+        capture.syscallTempPath = prefs.getString(key(packageName, "syscallTempPath"), "");
+        capture.syscallLogPath = prefs.getString(key(packageName, "syscallLogPath"), "");
         capture.tempDir = prefs.getString(key(packageName, "traceTempDir"), "");
         return capture;
     }
