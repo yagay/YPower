@@ -86,8 +86,12 @@ public class DiagnosticReport {
             }
             b.append("摘要：").append(f.summary).append('\n');
             if (f.totalCount > 0) {
-                b.append("本次触发：").append(f.totalCount)
-                        .append(" 次，命中 ").append(f.matchedCount).append(" 次\n");
+                b.append("本次状态：HIT ").append(f.hitCount)
+                        .append(" / CHECKED ").append(f.checkedCount)
+                        .append(" / NOT_HIT ").append(f.notHitCount)
+                        .append(" / UNKNOWN ").append(f.unknownCount)
+                        .append("（总计 ").append(f.totalCount).append("）\n");
+                b.append("代表状态：").append(f.representativeState).append('\n');
             }
             if (f.closestDeltaMs != Long.MAX_VALUE) {
                 b.append("距退出：").append(f.closestDeltaMs).append(" ms\n");
