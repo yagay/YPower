@@ -195,6 +195,7 @@ public class DiagnosticActivity extends AppCompatActivity {
                 this,
                 packageName,
                 finished.level,
+                finished.sessionId,
                 finished.startMs,
                 finished.endMs,
                 report -> runOnUiThread(() -> {
