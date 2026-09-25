@@ -147,11 +147,24 @@ public class DiagnosticReport {
             }
             if (f.sameThreadAsExit) b.append("与退出：同线程\n");
             if (f.sharedExitFrames > 0) {
-                b.append("共同调用栈帧：").append(f.sharedExitFrames).append('\n');
+                b.append("与退出共同调用栈帧：").append(f.sharedExitFrames).append('\n');
+            }
+            if (f.sameThreadAsFatal) b.append("与 Java Fatal：同线程\n");
+            if (f.sharedFatalFrames > 0) {
+                b.append("与 Java Fatal 共同业务栈帧：").append(f.sharedFatalFrames).append('\n');
             }
             if (f.input != null && !f.input.isBlank()) b.append("输入：").append(f.input).append('\n');
             if (f.result != null && !f.result.isBlank()) b.append("结果：").append(f.result).append('\n');
             if (f.exception != null && !f.exception.isBlank()) b.append("异常：").append(f.exception).append('\n');
+            if (f.throwableId != null && !f.throwableId.isBlank()) {
+                b.append("Throwable ID：").append(f.throwableId).append('\n');
+            }
+            if (f.cause != null && !f.cause.isBlank()) {
+                b.append("Cause：").append(f.cause).append('\n');
+            }
+            if (f.suppressedCount > 0) {
+                b.append("Suppressed：").append(f.suppressedCount).append('\n');
+            }
             if (f.correlationScore > 0) b.append("退出关联：").append(f.correlationScore).append("/100\n");
             if (f.detail != null && !f.detail.equals(f.summary)) b.append("详情：").append(f.detail).append('\n');
             for (String e : f.evidence) b.append("证据：").append(e).append('\n');
