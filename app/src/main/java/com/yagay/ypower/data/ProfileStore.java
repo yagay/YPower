@@ -73,6 +73,7 @@ public final class ProfileStore {
         p.traceProperties = preset.traceProperties;
         p.tracePermissions = preset.tracePermissions;
         p.traceDebugger = preset.traceDebugger;
+        p.traceExceptions = preset.traceExceptions;
         p.traceStacks = preset.traceStacks;
         p.traceJava = p.anyTraceEnabled();
         p.traceEnvironment = p.anyTraceEnabled();
