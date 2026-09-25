@@ -223,28 +223,83 @@ public class DiagnosticActivity extends AppCompatActivity {
                 ? lastReport.recommendationText()
                 : lastReport.rawText();
 
-        output.setText(styleDetectionStates(text));
+        output.setText(styleDetectionItems(text, mode));
     }
 
-    private CharSequence styleDetectionStates(String text) {
+    private CharSequence styleDetectionItems(String text, int mode) {
         SpannableStringBuilder styled = new SpannableStringBuilder(text);
 
-        Pattern pattern = Pattern.compile("(?:应用检测状态：|检测状态=)([^\\s\\n]+)");
-        Matcher matcher = pattern.matcher(text);
+        if (mode == 0) {
+            // 简要：整条检测项目变红。
+            Pattern linePattern = Pattern.compile("(?m)^• .*?检测状态=([^\\s\\n]+).*$");
+            Matcher matcher = linePattern.matcher(text);
+            while (matcher.find()) {
+                if (isFalseState(matcher.group(1))) continue;
+                applyRed(styled, matcher.start(), matcher.end());
+            }
+            return styled;
+        }
 
-        while (matcher.find()) {
-            String value = matcher.group(1);
-            if ("false".equalsIgnoreCase(value)) continue;
+        if (mode == 1) {
+            // 详细：从该 finding 的标题一直到这一块结束全部变红。
+            Pattern statePattern = Pattern.compile("应用检测状态：([^\\s\\n]+)");
+            Matcher matcher = statePattern.matcher(text);
+            while (matcher.find()) {
+                if (isFalseState(matcher.group(1))) continue;
 
-            styled.setSpan(
-                    new ForegroundColorSpan(Color.RED),
-                    matcher.start(1),
-                    matcher.end(1),
-                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            );
+                int blockStart = text.lastIndexOf("\n[ ", matcher.start());
+                blockStart = blockStart >= 0 ? blockStart + 1 : 0;
+
+                int blockEnd = text.indexOf("\n\n", matcher.end());
+                if (blockEnd < 0) blockEnd = text.length();
+
+                applyRed(styled, blockStart, blockEnd);
+            }
+            return styled;
+        }
+
+        if (mode == 2) {
+            // 归因说明：整条归因说明块变红。
+            Pattern statePattern = Pattern.compile("应用检测状态：([^\\s\\n]+)");
+            Matcher matcher = statePattern.matcher(text);
+            while (matcher.find()) {
+                if (isFalseState(matcher.group(1))) continue;
+
+                int blockStart = text.lastIndexOf("\n\n", matcher.start());
+                blockStart = blockStart >= 0 ? blockStart + 2 : 0;
+
+                int blockEnd = text.indexOf("\n\n", matcher.end());
+                if (blockEnd < 0) blockEnd = text.length();
+
+                applyRed(styled, blockStart, blockEnd);
+            }
+            return styled;
+        }
+
+        // 原始：整条事件日志标红；NOT_HIT/false 保持原色。
+        Pattern rawPattern = Pattern.compile("(?m)^.*?hitState=([^\\s]+).*$");
+        Matcher rawMatcher = rawPattern.matcher(text);
+        while (rawMatcher.find()) {
+            if (isFalseState(rawMatcher.group(1))) continue;
+            applyRed(styled, rawMatcher.start(), rawMatcher.end());
         }
 
         return styled;
+    }
+
+    private static boolean isFalseState(String value) {
+        return "false".equalsIgnoreCase(value)
+                || "NOT_HIT".equalsIgnoreCase(value);
+    }
+
+    private static void applyRed(SpannableStringBuilder styled, int start, int end) {
+        if (start < 0 || end <= start || end > styled.length()) return;
+        styled.setSpan(
+                new ForegroundColorSpan(Color.RED),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+        );
     }
 
     private void exportReport() {
