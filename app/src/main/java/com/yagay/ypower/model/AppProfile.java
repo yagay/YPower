@@ -29,6 +29,7 @@ public class AppProfile {
     public boolean traceProperties;
     public boolean tracePermissions;
     public boolean traceDebugger;
+    public boolean traceNative;
     public boolean traceStacks = true;
     public String diagnosticSessionId = "";
 
@@ -44,7 +45,7 @@ public class AppProfile {
 
     public boolean anyTraceEnabled() {
         return tracePackageScan || traceFiles || traceCommands || traceProperties
-                || tracePermissions || traceDebugger;
+                || tracePermissions || traceDebugger || traceNative;
     }
 
     public JSONObject toJson() {
@@ -65,6 +66,7 @@ public class AppProfile {
             o.put("traceProperties", traceProperties);
             o.put("tracePermissions", tracePermissions);
             o.put("traceDebugger", traceDebugger);
+            o.put("traceNative", traceNative);
             o.put("traceStacks", traceStacks);
             o.put("diagnosticSessionId", diagnosticSessionId);
 
@@ -102,6 +104,7 @@ public class AppProfile {
             p.traceProperties = o.has("traceProperties") ? o.optBoolean("traceProperties", false) : legacyTrace;
             p.tracePermissions = o.optBoolean("tracePermissions", false);
             p.traceDebugger = o.optBoolean("traceDebugger", false);
+            p.traceNative = o.optBoolean("traceNative", false);
             p.traceStacks = o.optBoolean("traceStacks", true);
             p.diagnosticSessionId = o.optString("diagnosticSessionId", "");
             p.traceJava = legacyTrace;
