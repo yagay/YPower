@@ -62,7 +62,9 @@ public class DiagnosticReport {
             b.append("• ");
             if (finding.attributionRank == 1) b.append("[主要归因] ");
             else if (finding.attributionRank == 2) b.append("[次要归因] ");
-            b.append(finding.title);
+            b.append(finding.title)
+                    .append("  检测状态=")
+                    .append(displayDetectionState(finding));
             if (finding.correlationScore > 0) {
                 b.append("  关联 ").append(finding.correlationScore).append("/100");
             }
@@ -91,6 +93,7 @@ public class DiagnosticReport {
                         .append(" / NOT_HIT ").append(f.notHitCount)
                         .append(" / UNKNOWN ").append(f.unknownCount)
                         .append("（总计 ").append(f.totalCount).append("）\n");
+                b.append("应用检测状态：").append(displayDetectionState(f)).append('\n');
                 b.append("代表状态：").append(f.representativeState).append('\n');
             }
             if (f.closestDeltaMs != Long.MAX_VALUE) {
@@ -138,6 +141,7 @@ public class DiagnosticReport {
                         .append(finding.attributionRank == 1 ? "主要归因 · " : "次要归因 · ")
                         .append(finding.title)
                         .append("（").append(finding.correlationScore).append("/100）\n");
+                b.append("应用检测状态：").append(displayDetectionState(finding)).append('\n');
                 b.append("为什么检测：").append(recommendation.whyDetected).append('\n');
                 b.append("开源项目说明：").append(recommendation.projectExplanation).append('\n');
                 b.append("为什么这次归因：").append(recommendation.whyAttributed).append('\n');
@@ -186,6 +190,27 @@ public class DiagnosticReport {
         } catch (JSONException ignored) {
         }
         return o;
+    }
+
+    private static String displayDetectionState(DiagnosticFinding finding) {
+        if (finding == null) return "unknown";
+
+        switch (finding.representativeState) {
+            case NOT_HIT:
+                return "false";
+            case HIT:
+                return "true";
+            case CHECKED:
+                return "CHECKED";
+            case UNKNOWN:
+            default:
+                if (finding.result != null) {
+                    String value = finding.result.trim();
+                    if ("false".equalsIgnoreCase(value)) return "false";
+                    if (!value.isBlank()) return value;
+                }
+                return "UNKNOWN";
+        }
     }
 
     private static String formatTime(long timestamp) {
