@@ -1,5 +1,7 @@
 package com.yagay.ypower.ui;
 
+import android.app.AlertDialog;
+import android.net.Uri;
 import android.os.Bundle;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
