@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added DuckDetector gap-analysis coverage for native system properties, kernel/proc identity, SELinux, memory/FD/smaps and linker/signal/vDSO inspection behavior.
+- Added ByteHook observation for open/openat/opendir, __system_property_get, uname, SELinux xattrs, sigaction, getauxval(AT_SYSINFO_EHDR), executable mprotect and dl_iterate_phdr.
+- Added stable Rule IDs for kernel, SELinux and memory inspection events; path/file checks remain CHECKED unless a concrete result proves a hit.
+- Added opt-in raw syscall experiment using strace for deep diagnostics. It is disabled by default because ptrace can alter anti-debug behavior.
+- Raw syscall traces are exported into the diagnostic artifact set as syscall-trace.txt and exposed in JSON/raw reports.
+
 - Added an observe-only exception propagation layer for Java fatal, Kotlin coroutines and RxJava2/3.
 - Added Thread.dispatchUncaughtException tracing without replacing the target app's UncaughtExceptionHandler.
 - Added observation of default/thread exception handler installation and RxJava global error handlers.
