@@ -18,6 +18,7 @@
 #include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
+#include <unwind.h>
 #include <vector>
 
 #define LOG_TAG "YPowerTrace"
@@ -67,6 +68,58 @@ static std::string current_thread_name() {
         return "";
     }
     return name;
+}
+
+struct UnwindState {
+    uintptr_t frames[24];
+    size_t count;
+};
+
+static _Unwind_Reason_Code unwind_callback(
+        struct _Unwind_Context *context,
+        void *arg) {
+    auto *state = reinterpret_cast<UnwindState *>(arg);
+    if (state->count >= 24) return _URC_END_OF_STACK;
+
+    uintptr_t pc = static_cast<uintptr_t>(_Unwind_GetIP(context));
+    if (pc != 0) state->frames[state->count++] = pc;
+    return _URC_NO_REASON;
+}
+
+static std::string native_backtrace() {
+    UnwindState state{};
+    _Unwind_Backtrace(unwind_callback, &state);
+
+    std::string out;
+    int added = 0;
+
+    for (size_t i = 0; i < state.count && added < 12; ++i) {
+        void *addr = reinterpret_cast<void *>(state.frames[i]);
+        Dl_info info{};
+        if (dladdr(addr, &info) == 0 || info.dli_fname == nullptr) continue;
+
+        const char *base = strrchr(info.dli_fname, '/');
+        base = base == nullptr ? info.dli_fname : base + 1;
+
+        if (strstr(base, "libypower_native_trace.so") != nullptr
+                || strstr(base, "libbytehook.so") != nullptr) {
+            continue;
+        }
+
+        uintptr_t offset = info.dli_fbase == nullptr
+                ? 0
+                : reinterpret_cast<uintptr_t>(addr)
+                  - reinterpret_cast<uintptr_t>(info.dli_fbase);
+
+        char frame[256];
+        snprintf(frame, sizeof(frame), "%s+0x%" PRIxPTR, base, offset);
+
+        if (!out.empty()) out += " <- ";
+        out += frame;
+        added++;
+    }
+
+    return out;
 }
 
 static std::string caller_source() {
@@ -153,6 +206,8 @@ static void emit_event(
     pid_t pid = getpid();
     pid_t tid = static_cast<pid_t>(syscall(SYS_gettid));
 
+    std::string stack = native_backtrace();
+
     std::string json = "{";
     json += "\"ts\":" + std::to_string(now_ms());
     json += ",\"package\":\"" + json_escape(package_name) + "\"";
@@ -171,7 +226,7 @@ static void emit_event(
     json += ",\"thread\":\"" + json_escape(current_thread_name()) + "\"";
     json += ",\"process\":\"" + json_escape(package_name) + "\"";
     json += ",\"durationNs\":" + std::to_string(duration_ns);
-    json += ",\"stack\":\"\"";
+    json += ",\"stack\":\"" + json_escape(stack) + "\"";
     json += "}";
 
     __android_log_write(ANDROID_LOG_INFO, LOG_TAG, json.c_str());
