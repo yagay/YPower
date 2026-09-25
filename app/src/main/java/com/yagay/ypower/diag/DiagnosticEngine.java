@@ -192,6 +192,7 @@ public final class DiagnosticEngine {
         }
 
         buildLinkerMappings(events, report);
+        buildExceptionPropagation(events, report);
 
         Map<String, DiagnosticFinding> findings = new LinkedHashMap<>();
 
@@ -268,6 +269,95 @@ public final class DiagnosticEngine {
                     + " / NOT_HIT " + finding.notHitCount
                     + " / UNKNOWN " + finding.unknownCount + "）";
             report.findings.add(finding);
+        }
+    }
+
+    private static void buildExceptionPropagation(
+            List<LogEventParser.TraceEvent> events,
+            DiagnosticReport report
+    ) {
+        LogEventParser.TraceEvent fatal = null;
+
+        for (LogEventParser.TraceEvent event : events) {
+            if (!DetectionRuleIds.JAVA_UNCAUGHT_EXCEPTION.equals(event.ruleId)) continue;
+
+            if (report.lastExitTimestamp > 0 && event.ts > report.lastExitTimestamp + 2000) {
+                continue;
+            }
+
+            if (fatal == null || event.ts > fatal.ts) {
+                fatal = event;
+            }
+        }
+
+        if (fatal != null) {
+            report.fatalExceptionTimestamp = fatal.ts;
+            report.fatalExceptionPid = fatal.pid;
+            report.fatalExceptionTid = fatal.tid;
+            report.fatalExceptionThread = fatal.thread;
+            report.fatalExceptionClass = fatal.exceptionClass;
+            report.fatalExceptionMessage = fatal.exceptionMessage;
+            report.fatalThrowableId = fatal.throwableId;
+            report.fatalExceptionStack = fatal.stack;
+
+            report.exceptionPropagation.add(
+                    "Java uncaught："
+                            + (fatal.exceptionClass == null || fatal.exceptionClass.isBlank()
+                            ? fatal.exception
+                            : fatal.exceptionClass)
+                            + " · thread=" + fatal.thread
+                            + " · tid=" + fatal.tid
+                            + (fatal.throwableId == null || fatal.throwableId.isBlank()
+                            ? ""
+                            : " · Throwable#" + fatal.throwableId)
+            );
+        }
+
+        for (LogEventParser.TraceEvent event : events) {
+            boolean frameworkError =
+                    DetectionRuleIds.COROUTINE_UNHANDLED_EXCEPTION.equals(event.ruleId)
+                            || DetectionRuleIds.RXJAVA2_GLOBAL_ERROR.equals(event.ruleId)
+                            || DetectionRuleIds.RXJAVA3_GLOBAL_ERROR.equals(event.ruleId);
+            if (!frameworkError) continue;
+
+            String sourceName;
+            if (DetectionRuleIds.COROUTINE_UNHANDLED_EXCEPTION.equals(event.ruleId)) {
+                sourceName = "Coroutine";
+            } else if (DetectionRuleIds.RXJAVA3_GLOBAL_ERROR.equals(event.ruleId)) {
+                sourceName = "RxJava3";
+            } else {
+                sourceName = "RxJava2";
+            }
+
+            StringBuilder item = new StringBuilder();
+            item.append(sourceName)
+                    .append("：")
+                    .append(event.exceptionClass == null || event.exceptionClass.isBlank()
+                            ? event.exception
+                            : event.exceptionClass)
+                    .append(" · tid=").append(event.tid);
+
+            if (fatal != null) {
+                long delta = fatal.ts - event.ts;
+                boolean sameThrowable = event.throwableId != null
+                        && !event.throwableId.isBlank()
+                        && event.throwableId.equals(fatal.throwableId);
+
+                if (sameThrowable) {
+                    item.append(" → Java uncaught（同一 Throwable，Δ=")
+                            .append(delta)
+                            .append("ms）");
+                } else if (delta >= 0 && delta <= 1500 && event.tid == fatal.tid) {
+                    item.append(" → Java uncaught（同TID，Δ=")
+                            .append(delta)
+                            .append("ms）");
+                }
+            }
+
+            String value = item.toString();
+            if (!report.exceptionPropagation.contains(value)) {
+                report.exceptionPropagation.add(value);
+            }
         }
     }
 
@@ -380,6 +470,11 @@ public final class DiagnosticEngine {
         finding.input = event.input;
         finding.result = event.result;
         finding.exception = event.exception;
+        finding.exceptionClass = event.exceptionClass;
+        finding.exceptionMessage = event.exceptionMessage;
+        finding.throwableId = event.throwableId;
+        finding.cause = event.cause;
+        finding.suppressedCount = event.suppressedCount;
         finding.durationNs = event.durationNs;
         finding.stack = event.stack;
     }
@@ -402,6 +497,15 @@ public final class DiagnosticEngine {
 
         if (event.exception != null && !event.exception.isBlank()) {
             b.append("\n  exception: ").append(event.exception);
+        }
+        if (event.throwableId != null && !event.throwableId.isBlank()) {
+            b.append("\n  throwableId: ").append(event.throwableId);
+        }
+        if (event.cause != null && !event.cause.isBlank()) {
+            b.append("\n  cause: ").append(event.cause);
+        }
+        if (event.suppressedCount > 0) {
+            b.append("\n  suppressed: ").append(event.suppressedCount);
         }
 
         if (event.durationNs > 0) {
