@@ -42,6 +42,7 @@ public final class CorrelationEngine {
         List<DiagnosticFinding> candidates = new ArrayList<>();
         for (DiagnosticFinding finding : report.findings) {
             if ("exit".equals(finding.category)) continue;
+            if ("instrumentation".equals(finding.category)) continue;
             if (!eligibleForAttribution(finding)) continue;
             candidates.add(finding);
         }
