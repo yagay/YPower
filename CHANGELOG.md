@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added centralized DetectionRuleCatalog and a four-state detection model: CHECKED/HIT/NOT_HIT/UNKNOWN.
+- Fixed Java and native path matching so specific Magisk/KernelSU/APatch/su rules win before generic /data/adb.
+- Package enumeration now emits one event per sensitive returned package instead of keeping only the first.
+- /proc maps/status/mount and command-execution observations no longer count as positive hits without a concrete result.
+- Direct package NameNotFound results are NOT_HIT and no longer gain attribution weight.
+- Correlation now caps CHECKED evidence and excludes NOT_HIT/UNKNOWN from causal attribution.
+- Recommendation generation now maps directly from ruleId to the rule catalog instead of keyword matching.
+
 - Added precise attribution events with stable Rule IDs, input, actual result, match state, exception, duration, PID/TID/thread, session ID and stack.
 - Split permission observation from permission simulation so diagnostic mode can record the real permission result without changing it.
 - Added Java debugger checks and deeper exit call stacks.
