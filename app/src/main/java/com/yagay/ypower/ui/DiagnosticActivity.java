@@ -165,10 +165,22 @@ public class DiagnosticActivity extends AppCompatActivity {
                 ? "LSPosed 已连接，已请求目标 App Scope。"
                 : "LSPosed Service 未连接；运行时 Java 检测可能无法记录。";
 
+        String systemTrace = "";
+        if (state.level == DiagnosticLevel.DEEP) {
+            systemTrace = "\n\n系统级采集："
+                    + "\nPerfetto："
+                    + (state.systemTrace.perfettoStarted ? "已启动" :
+                    state.systemTrace.perfettoAvailable ? "启动失败" : "设备不可用")
+                    + "\nsimpleperf："
+                    + (state.systemTrace.simpleperfStarted ? "已启动" :
+                    state.systemTrace.simpleperfAvailable ? "启动失败" : "设备不可用");
+        }
+
         output.setText("诊断会话已开始。\n"
                 + "YPower 已临时打开本次诊断需要的追踪 Hook，并已停止目标 App，"
                 + "确保下次启动时重新加载 Hook。\n\n"
                 + lsposed
+                + systemTrace
                 + "\n\n现在点击“启动目标 App”，正常使用并复现问题。");
         refreshSessionStatus();
     }
