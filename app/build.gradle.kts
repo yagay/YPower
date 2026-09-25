@@ -6,6 +6,7 @@ android {
     namespace = "com.yagay.ypower"
     compileSdk = 37
     compileSdkMinor = 0
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.yagay.ypower"
