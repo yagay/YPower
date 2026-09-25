@@ -24,6 +24,7 @@ public final class SystemTraceCollector {
             DiagnosticLevel level
     ) {
         CaptureState state = new CaptureState();
+        state.sessionId = sessionId == null ? "" : sessionId;
         if (level != DiagnosticLevel.DEEP || !RootShell.isRootAvailable()) {
             return state;
         }
