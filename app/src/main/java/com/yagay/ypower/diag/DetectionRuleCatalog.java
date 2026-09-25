@@ -345,6 +345,32 @@ public final class DetectionRuleCatalog {
                 "记录算法、输入长度和调用栈，不记录完整敏感内容。",
                 "Java MessageDigest / app integrity");
 
+        add(DetectionRuleIds.ATTESTATION_FLOW, "attestation", "Attestation 调用链",
+                "YPower 在同一次会话中观察到 KeyStore/attestation challenge/证书链或安全级别查询组成的连续调用。",
+                "这表示目标 App 正在执行硬件密钥/背书相关流程，但不等于 attestation verdict 失败。",
+                "查看 challenge、StrongBox、certificate chain、异常与退出时序，必要时在官方支持设备状态下复测。",
+                "Android Key Attestation / KeyAttestation");
+        add(DetectionRuleIds.PLAY_INTEGRITY_FLOW, "integrity", "Play Integrity 调用链",
+                "YPower 观察到 prepare/request/token 等 Play Integrity API 组成完整性请求流程。",
+                "客户端侧通常只能看到 token 请求与返回，最终 verdict 可能在服务端解析。",
+                "结合请求异常、token 是否返回和退出时间线，不推断不可见的服务端 verdict。",
+                "Google Play Integrity / SPIC");
+        add(DetectionRuleIds.DIRTY_SEPOLICY_FLOW, "selinux", "DirtySepolicy 风格探针链",
+                "YPower 观察到 context/access/status/policyload 等 SELinux policy 查询形成连续探针链。",
+                "DirtySepolicy 使用 App-Zygote/SELinux policy 查询来识别策略环境差异。",
+                "把它作为 CHECKED 组合证据；只有和明确异常/退出稳定相关时才提高归因。",
+                "LSPosed DirtySepolicy");
+        add(DetectionRuleIds.ZYGISK_PTRACE_FLOW, "zygisk", "Zygisk ptrace 探针链",
+                "YPower 观察到 fork/waitpid/PTRACE_ATTACH/PTRACE_GETEVENTMSG 等组合调用。",
+                "DetectZygisk 使用这类 ptrace event-message 序列观察部分 Zygisk 行为。",
+                "记录完整序列、PID/TID和返回值，不修改 ptrace 结果。",
+                "DetectZygisk");
+        add(DetectionRuleIds.SELF_INTEGRITY_FLOW, "self_integrity", "App 自完整性检查链",
+                "YPower 观察到自身签名/APK/DEX/SO读取与摘要计算形成连续链。",
+                "RASP/防篡改项目常组合签名、APK/DEX/SO校验，而不是依赖单个 API。",
+                "查看实际目标文件、摘要算法和后续退出链；普通资源读取不应单独判定异常。",
+                "GarudaDefender / Android app integrity");
+
         add(DetectionRuleIds.JAVA_LOAD_LIBRARY, "instrumentation", "Java Native 库加载",
                 "应用通过 System.load/System.loadLibrary 加载 native 库；这能建立 Java 调用栈到 SO 的入口映射。",
                 "这是诊断映射事件，不是安全检测命中。与 dlopen 事件按时间/TID 对齐后，可帮助定位 Java→JNI→SO 的调用关系。",
@@ -568,7 +594,12 @@ public final class DetectionRuleCatalog {
                 || DetectionRuleIds.SELF_APK_READ.equals(id)
                 || DetectionRuleIds.SELF_DEX_READ.equals(id)
                 || DetectionRuleIds.SELF_SO_READ.equals(id)
-                || DetectionRuleIds.CERTIFICATE_DIGEST_QUERY.equals(id);
+                || DetectionRuleIds.CERTIFICATE_DIGEST_QUERY.equals(id)
+                || DetectionRuleIds.ATTESTATION_FLOW.equals(id)
+                || DetectionRuleIds.PLAY_INTEGRITY_FLOW.equals(id)
+                || DetectionRuleIds.DIRTY_SEPOLICY_FLOW.equals(id)
+                || DetectionRuleIds.ZYGISK_PTRACE_FLOW.equals(id)
+                || DetectionRuleIds.SELF_INTEGRITY_FLOW.equals(id);
     }
 
     private static boolean isBooleanRule(String id) {
