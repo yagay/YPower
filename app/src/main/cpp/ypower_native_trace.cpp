@@ -281,7 +281,7 @@ static void dlopen_pre_callback(const char *filename, void *) {
             "begin",
             false,
             "",
-            caller_source(),
+            "bytehook.dlopen.pre",
             0
     );
 }
@@ -295,7 +295,7 @@ static void dlopen_post_callback(const char *filename, int result, void *) {
             result == 0 ? "loaded" : "failed",
             false,
             result == 0 ? "" : "dlopen failed",
-            caller_source(),
+            "bytehook.dlopen.post",
             0
     );
 }
