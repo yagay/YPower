@@ -220,6 +220,131 @@ public final class DetectionRuleCatalog {
                 "记录地址、长度、prot 与调用者 SO，仅用于归因。",
                 "Linux mprotect / DuckDetector memory model");
 
+        add(DetectionRuleIds.KEYSTORE_INSTANCE_QUERY, "attestation", "AndroidKeyStore / KeyStore 实例查询",
+                "应用初始化 KeyStore/AndroidKeyStore，可能用于普通密钥操作，也可能是后续硬件背书链的入口。",
+                "KeyAttestation/SPIC 等项目都会经过 AndroidKeyStore/KeyMint 相关 API；单纯 getInstance 只表示 CHECKED。",
+                "结合后续 attestation challenge、StrongBox、certificate chain 和退出链判断，不把普通 KeyStore 使用误判成安全检测。",
+                "AndroidKeyStore / KeyAttestation");
+        add(DetectionRuleIds.KEY_ATTESTATION_CHALLENGE, "attestation", "Key Attestation Challenge",
+                "应用设置 attestation challenge，明确表示它准备请求设备/密钥硬件背书。",
+                "KeyAttestation 项目使用 challenge 生成可验证证书链；这比普通 KeyStore 调用更接近完整性校验。",
+                "记录 challenge 长度、调用栈和后续证书链查询；不修改 challenge 或 attestation 结果。",
+                "Android Key Attestation / KeyMint");
+        add(DetectionRuleIds.KEY_STRONGBOX_REQUEST, "attestation", "StrongBox 请求",
+                "应用显式要求 StrongBox-backed key，通常用于更强硬件隔离保证。",
+                "StrongBox/KeyMint 是 Android 硬件密钥安全层的一部分。",
+                "记录是否请求 StrongBox 以及后续是否失败/降级，不修改原配置。",
+                "Android StrongBox / KeyMint");
+        add(DetectionRuleIds.KEY_CERT_CHAIN_QUERY, "attestation", "Attestation 证书链查询",
+                "应用读取 AndroidKeyStore certificate chain，常用于解析设备/密钥 attestation extension。",
+                "KeyAttestation 会解析证书链和 attestation extension 来判断安全级别与设备状态。",
+                "记录 alias、链长度和调用栈；若后续出现异常/退出再作为归因证据。",
+                "KeyAttestation / AndroidKeyStore");
+        add(DetectionRuleIds.KEY_SECURITY_LEVEL_QUERY, "attestation", "Key 安全级别查询",
+                "应用读取 KeyInfo/安全级别信息，用于区分软件、TEE 或 StrongBox 实现。",
+                "Android Keystore/KeyMint 暴露 security level/inside-secure-hardware 等信息。",
+                "记录真实返回值与调用栈，不把任何单一安全级别自动判成异常。",
+                "Android KeyInfo / KeyMint");
+
+        add(DetectionRuleIds.PLAY_INTEGRITY_REQUEST, "integrity", "Play Integrity Token 请求",
+                "应用请求 Play Integrity token，通常用于设备/应用/账号完整性验证。",
+                "SPIC 等开源项目演示了 IntegrityManager 请求 token 的标准流程；最终 verdict 可能在服务端解析。",
+                "记录 request 参数、时间和后续异常/退出；若看不到服务端 verdict，就只标记 CHECKED。",
+                "Google Play Integrity / SPIC");
+        add(DetectionRuleIds.PLAY_INTEGRITY_STANDARD_PREPARE, "integrity", "Standard Integrity 准备请求",
+                "应用准备 Standard Integrity token provider。",
+                "新式 Standard Integrity API 通常先 prepare，再由 provider 发起 token 请求。",
+                "记录准备阶段及调用栈，不推断最终 verdict。",
+                "Google Play Integrity Standard API");
+        add(DetectionRuleIds.PLAY_INTEGRITY_STANDARD_REQUEST, "integrity", "Standard Integrity Token 请求",
+                "应用通过 Standard Integrity provider 请求 token。",
+                "该事件能证明 App 实际发起了完整性请求，但不能单独说明 verdict 通过或失败。",
+                "结合返回异常、后续 token 读取和退出时序判断。",
+                "Google Play Integrity Standard API");
+        add(DetectionRuleIds.PLAY_INTEGRITY_TOKEN_QUERY, "integrity", "Play Integrity Token 读取",
+                "应用读取 Integrity token 字符串，通常会随后发送到服务端。",
+                "客户端通常看不到最终服务端 verdict；token 本身只证明请求已完成到客户端阶段。",
+                "只记录 token 是否非空和长度，不记录完整 token 内容。",
+                "Google Play Integrity");
+
+        add(DetectionRuleIds.SELINUX_ACCESS_PROBE, "selinux", "DirtySepolicy access 探针",
+                "应用访问 /sys/fs/selinux/access 或调用等价 policy access 检查，用于直接询问某条 SELinux 访问是否允许。",
+                "DirtySepolicy 使用 SELinux policy 查询链来识别被修改/注入的策略状态。",
+                "记录路径、上下文和时序；单次访问保持 CHECKED，连续 context→access→status/policyload 更有诊断价值。",
+                "LSPosed DirtySepolicy");
+        add(DetectionRuleIds.SELINUX_STATUS_SEQNO, "selinux", "SELinux status/seqno 查询",
+                "应用读取 selinux status/sequence 以观察 policy reload 或状态变化。",
+                "DirtySepolicy/SELinux 深度检测会结合 status 与 access/context 查询。",
+                "记录具体调用链，不把读取行为本身视为 HIT。",
+                "DirtySepolicy / SELinux status");
+        add(DetectionRuleIds.SELINUX_POLICYLOAD_QUERY, "selinux", "SELinux policyload 查询",
+                "应用访问 policyload 等节点观察 policy 重新加载状态。",
+                "DirtySepolicy 类检测会把 policy 状态变化作为环境线索。",
+                "仅作为 CHECKED 证据，与其他 SELinux 探针链联合分析。",
+                "DirtySepolicy / SELinux policy");
+        add(DetectionRuleIds.APP_ZYGOTE_PROBE, "selinux", "App-Zygote/隔离进程探针",
+                "应用通过 isolated/app-zygote 进程行为检查 SELinux/运行环境差异。",
+                "DirtySepolicy 公开实现利用 App Zygote 场景观察策略行为。",
+                "只记录进程创建/隔离链和 SELinux 探针，不修改进程或策略。",
+                "DirtySepolicy / Android App Zygote");
+
+        add(DetectionRuleIds.PROCESS_FORK_QUERY, "zygisk", "fork/vfork 进程探针",
+                "应用创建子进程后可能继续做 ptrace/waitpid 比较，用于反调试或 Zygisk 事件探测。",
+                "DetectZygisk 使用 fork + ptrace + waitpid + PTRACE_GETEVENTMSG 组合。",
+                "单独 fork 只算 CHECKED，只有形成完整序列并接近退出才提高归因。",
+                "DetectZygisk / Linux process");
+        add(DetectionRuleIds.PROCESS_WAITPID_QUERY, "zygisk", "waitpid 进程事件等待",
+                "应用等待子进程/ptrace 事件，常用于反调试或 Zygisk 行为探针。",
+                "DetectZygisk 的关键流程包含 waitpid。",
+                "与 fork/ptrace request 同 TID/同时间窗口联合分析。",
+                "DetectZygisk / ptrace");
+        add(DetectionRuleIds.PTRACE_ATTACH_QUERY, "zygisk", "PTRACE_ATTACH",
+                "应用主动 attach 目标进程，可能用于反调试自检或 Zygisk 行为探针。",
+                "DetectZygisk 通过 ptrace attach 进入后续 event-message 检测。",
+                "记录 target pid、返回值和调用者 SO，不修改 ptrace 行为。",
+                "DetectZygisk");
+        add(DetectionRuleIds.PTRACE_EVENTMSG_QUERY, "zygisk", "PTRACE_GETEVENTMSG",
+                "应用读取 ptrace event message，是 DetectZygisk 一类流程的关键步骤。",
+                "这比笼统记录 ptrace() 更能识别具体 Zygisk 探测链。",
+                "与 fork/waitpid/PTRACE_ATTACH 序列关联，不单独判断设备状态。",
+                "DetectZygisk");
+        add(DetectionRuleIds.PTRACE_SYSCALL_QUERY, "debugger", "PTRACE_SYSCALL",
+                "应用要求被跟踪进程在 syscall 边界暂停。",
+                "常用于调试、反调试和 syscall 行为分析。",
+                "仅记录 request/pid/result。",
+                "Linux ptrace");
+        add(DetectionRuleIds.PTRACE_DETACH_QUERY, "zygisk", "PTRACE_DETACH",
+                "应用结束 ptrace 跟踪。",
+                "与 attach/geteventmsg/waitpid 一起可以还原完整探针生命周期。",
+                "仅记录行为与时序。",
+                "DetectZygisk / Linux ptrace");
+
+        add(DetectionRuleIds.APP_SIGNATURE_QUERY, "self_integrity", "自身签名/SigningInfo 查询",
+                "应用读取自己的 signing certificate 或 package signing info，常用于自完整性与重打包检测。",
+                "GarudaDefender 等 RASP 项目会验证签名与 APK 是否被重签名。",
+                "记录查询目标、flags、调用栈和后续摘要计算；不修改签名数据。",
+                "Android SigningInfo / GarudaDefender");
+        add(DetectionRuleIds.SELF_APK_READ, "self_integrity", "自身 APK 读取",
+                "应用直接打开自身 APK/BASE APK，可能用于计算摘要、检查资源或反篡改。",
+                "自完整性方案常读取 base.apk 并检查 ZIP/签名/DEX 内容。",
+                "记录路径、API、调用栈；普通资源读取只算 CHECKED。",
+                "APK integrity / GarudaDefender");
+        add(DetectionRuleIds.SELF_DEX_READ, "self_integrity", "DEX 完整性读取",
+                "应用读取 classes*.dex，可能用于 checksum/代码完整性验证。",
+                "RASP/防篡改项目会对 DEX 进行摘要或结构检查。",
+                "记录具体 dex 路径与后续 MessageDigest 使用。",
+                "DEX integrity / GarudaDefender");
+        add(DetectionRuleIds.SELF_SO_READ, "self_integrity", "Native SO 完整性读取",
+                "应用直接读取自身 native library，可能用于 ELF/哈希/Hook 完整性检查。",
+                "Native RASP 常校验 SO 文件与内存映射。",
+                "记录 SO 路径、调用者、后续摘要计算和退出链。",
+                "Native integrity / GarudaDefender");
+        add(DetectionRuleIds.CERTIFICATE_DIGEST_QUERY, "self_integrity", "证书/代码摘要计算",
+                "应用通过 MessageDigest 对签名、APK、DEX 或 SO 数据计算摘要。",
+                "摘要算法本身用途广泛，因此默认只算 CHECKED；需要与 signing/APK/DEX/SO 读取链联合判断。",
+                "记录算法、输入长度和调用栈，不记录完整敏感内容。",
+                "Java MessageDigest / app integrity");
+
         add(DetectionRuleIds.JAVA_LOAD_LIBRARY, "instrumentation", "Java Native 库加载",
                 "应用通过 System.load/System.loadLibrary 加载 native 库；这能建立 Java 调用栈到 SO 的入口映射。",
                 "这是诊断映射事件，不是安全检测命中。与 dlopen 事件按时间/TID 对齐后，可帮助定位 Java→JNI→SO 的调用关系。",
@@ -419,7 +544,31 @@ public final class DetectionRuleCatalog {
                 || DetectionRuleIds.MEMORY_LINKER_ENUM_QUERY.equals(id)
                 || DetectionRuleIds.MEMORY_SIGNAL_QUERY.equals(id)
                 || DetectionRuleIds.MEMORY_VDSO_QUERY.equals(id)
-                || DetectionRuleIds.MEMORY_MPROTECT_QUERY.equals(id);
+                || DetectionRuleIds.MEMORY_MPROTECT_QUERY.equals(id)
+                || DetectionRuleIds.KEYSTORE_INSTANCE_QUERY.equals(id)
+                || DetectionRuleIds.KEY_ATTESTATION_CHALLENGE.equals(id)
+                || DetectionRuleIds.KEY_STRONGBOX_REQUEST.equals(id)
+                || DetectionRuleIds.KEY_CERT_CHAIN_QUERY.equals(id)
+                || DetectionRuleIds.KEY_SECURITY_LEVEL_QUERY.equals(id)
+                || DetectionRuleIds.PLAY_INTEGRITY_REQUEST.equals(id)
+                || DetectionRuleIds.PLAY_INTEGRITY_STANDARD_PREPARE.equals(id)
+                || DetectionRuleIds.PLAY_INTEGRITY_STANDARD_REQUEST.equals(id)
+                || DetectionRuleIds.PLAY_INTEGRITY_TOKEN_QUERY.equals(id)
+                || DetectionRuleIds.SELINUX_ACCESS_PROBE.equals(id)
+                || DetectionRuleIds.SELINUX_STATUS_SEQNO.equals(id)
+                || DetectionRuleIds.SELINUX_POLICYLOAD_QUERY.equals(id)
+                || DetectionRuleIds.APP_ZYGOTE_PROBE.equals(id)
+                || DetectionRuleIds.PROCESS_FORK_QUERY.equals(id)
+                || DetectionRuleIds.PROCESS_WAITPID_QUERY.equals(id)
+                || DetectionRuleIds.PTRACE_ATTACH_QUERY.equals(id)
+                || DetectionRuleIds.PTRACE_EVENTMSG_QUERY.equals(id)
+                || DetectionRuleIds.PTRACE_SYSCALL_QUERY.equals(id)
+                || DetectionRuleIds.PTRACE_DETACH_QUERY.equals(id)
+                || DetectionRuleIds.APP_SIGNATURE_QUERY.equals(id)
+                || DetectionRuleIds.SELF_APK_READ.equals(id)
+                || DetectionRuleIds.SELF_DEX_READ.equals(id)
+                || DetectionRuleIds.SELF_SO_READ.equals(id)
+                || DetectionRuleIds.CERTIFICATE_DIGEST_QUERY.equals(id);
     }
 
     private static boolean isBooleanRule(String id) {
