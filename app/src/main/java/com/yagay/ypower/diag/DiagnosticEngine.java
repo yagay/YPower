@@ -171,18 +171,22 @@ public final class DiagnosticEngine {
         );
         events.sort(Comparator.comparingLong(e -> e.ts));
 
-        // Prefer the exact Java-side exit event because it has TID + stack.
+        // Prefer an exact instrumented exit point over the later process-death timestamp.
+        LogEventParser.TraceEvent explicitExit = null;
         for (LogEventParser.TraceEvent event : events) {
-            if (!"exit".equals(event.type)) continue;
-            if (event.ts >= report.lastExitTimestamp) {
-                report.lastExitTimestamp = event.ts;
-                report.exitPid = event.pid;
-                report.exitTid = event.tid;
-                report.exitThread = event.thread;
-                report.exitSource = event.source;
-                report.exitStack = event.stack;
-                report.exitRuleId = event.ruleId;
+            if (!isExitEvent(event)) continue;
+            if (explicitExit == null || event.ts > explicitExit.ts) {
+                explicitExit = event;
             }
+        }
+        if (explicitExit != null) {
+            report.lastExitTimestamp = explicitExit.ts;
+            report.exitPid = explicitExit.pid;
+            report.exitTid = explicitExit.tid;
+            report.exitThread = explicitExit.thread;
+            report.exitSource = explicitExit.source;
+            report.exitStack = explicitExit.stack;
+            report.exitRuleId = explicitExit.ruleId;
         }
 
         Map<String, DiagnosticFinding> findings = new LinkedHashMap<>();
@@ -200,7 +204,7 @@ public final class DiagnosticEngine {
                     ? DetectionRuleIds.UNKNOWN
                     : event.ruleId;
 
-            String key = "exit".equals(event.type)
+            String key = isExitEvent(event)
                     ? "exit|" + stableRule
                     : stableRule + "|" + descriptor.category;
 
@@ -228,7 +232,7 @@ public final class DiagnosticEngine {
                 finding.evidence(formatEvidence(event));
             }
 
-            if ("exit".equals(event.type)) {
+            if (isExitEvent(event)) {
                 finding.correlationScore = 100;
             }
 
@@ -407,6 +411,18 @@ public final class DiagnosticEngine {
             case DetectionRuleIds.PERMISSION_QUERY:
                 return detected("permission", "权限状态查询",
                         "目标 App 实际查询了权限状态");
+            case DetectionRuleIds.NATIVE_PTRACE:
+                return detected("debugger", "Native ptrace 调试器检测",
+                        "目标 App 的 native 代码实际调用了 ptrace");
+            case DetectionRuleIds.EXIT_NATIVE_ABORT:
+                return failed("exit", "Native abort 主动退出",
+                        "目标 App 的 native 代码实际调用了 abort");
+            case DetectionRuleIds.EXIT_NATIVE_EXIT:
+                return failed("exit", "Native exit/_exit 主动退出",
+                        "目标 App 的 native 代码实际调用了 exit/_exit");
+            case DetectionRuleIds.EXIT_NATIVE_KILL:
+                return failed("exit", "Native kill/tgkill 主动退出",
+                        "目标 App 的 native 代码实际向自身进程/线程发送退出信号");
             case DetectionRuleIds.EXIT_SYSTEM:
                 return failed("exit", "System.exit 主动退出",
                         "目标 App 实际调用了 System.exit");
@@ -442,11 +458,23 @@ public final class DiagnosticEngine {
                 return detected("permission", "权限状态查询",
                         "目标 App 实际查询了权限状态");
             case "exit":
+            case "native_exit":
                 return failed("exit", "应用主动退出调用",
                         "目标 App 实际调用了主动退出 API");
+            case "native_file":
+                return detected("native", "Native 敏感文件检测",
+                        "目标 App 的 native 代码实际访问了敏感文件/路径");
+            case "native_debugger":
+                return detected("debugger", "Native 调试器检测",
+                        "目标 App 的 native 代码实际执行了调试器相关检查");
             default:
                 return null;
         }
+    }
+
+    private static boolean isExitEvent(LogEventParser.TraceEvent event) {
+        return event != null
+                && ("exit".equals(event.type) || "native_exit".equals(event.type));
     }
 
     private static EventDescriptor detected(String category, String title, String summary) {
