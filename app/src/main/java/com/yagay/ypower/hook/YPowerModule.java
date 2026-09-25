@@ -990,9 +990,9 @@ public final class YPowerModule extends XposedModule {
     ) {
         long ts = System.currentTimeMillis();
         long durationNs = Math.max(0L, System.nanoTime() - startNs);
-        String stack = (forceStack || (profile != null && profile.traceStacks))
-                ? shortStack()
-                : "";
+        String stack = forceStack
+                ? captureStack(32)
+                : (profile != null && profile.traceStacks ? captureStack(12) : "");
 
         int pid = android.os.Process.myPid();
         int tid = android.os.Process.myTid();
@@ -1031,7 +1031,7 @@ public final class YPowerModule extends XposedModule {
         Log.i(TAG, json);
     }
 
-    private static String shortStack() {
+    private static String captureStack(int maxFrames) {
         StringBuilder out = new StringBuilder();
         int added = 0;
         for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
@@ -1048,7 +1048,7 @@ public final class YPowerModule extends XposedModule {
                     .append(':')
                     .append(frame.getLineNumber());
 
-            if (added >= 12) break;
+            if (added >= maxFrames) break;
         }
         return out.toString();
     }
