@@ -91,8 +91,19 @@ public class MainActivity extends AppCompatActivity {
         if (apps.isEmpty()) {
             apps.addAll(pm.getInstalledApplications(0));
             apps.removeIf(a -> getPackageName().equals(a.packageName));
-            apps.sort(Comparator.comparing(a -> String.valueOf(pm.getApplicationLabel(a)), String.CASE_INSENSITIVE_ORDER));
         }
+
+        ProfileStore store = ProfileStore.get(this);
+        apps.sort(
+                Comparator
+                        .comparing((ApplicationInfo a) -> !store.getProfile(a.packageName).enabled)
+                        .thenComparing(
+                                a -> String.valueOf(pm.getApplicationLabel(a)),
+                                String.CASE_INSENSITIVE_ORDER
+                        )
+                        .thenComparing(a -> a.packageName, String.CASE_INSENSITIVE_ORDER)
+        );
+
         String q = query == null ? "" : query.toLowerCase(Locale.ROOT).trim();
         list.removeAllViews();
         for (ApplicationInfo app : apps) {
@@ -110,7 +121,10 @@ public class MainActivity extends AppCompatActivity {
 
         CheckBox enabled = new CheckBox(this);
         enabled.setChecked(ProfileStore.get(this).getProfile(packageName).enabled);
-        enabled.setOnCheckedChangeListener((buttonView, isChecked) -> ProfileStore.get(this).setEnabled(packageName, isChecked));
+        enabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            ProfileStore.get(this).setEnabled(packageName, isChecked);
+            buttonView.post(() -> loadApps(search == null ? "" : search.getText().toString()));
+        });
         row.addView(enabled);
 
         TextView text = new TextView(this);
