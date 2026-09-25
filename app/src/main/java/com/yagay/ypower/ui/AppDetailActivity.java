@@ -94,6 +94,8 @@ public class AppDetailActivity extends AppCompatActivity {
         CheckBox files = addCheck(root, "文件与 /proc 访问追踪", profile.traceFiles);
         CheckBox commands = addCheck(root, "命令执行与主动退出追踪", profile.traceCommands);
         CheckBox properties = addCheck(root, "系统属性 / Boot 状态查询追踪", profile.traceProperties);
+        CheckBox permissions = addCheck(root, "权限状态查询追踪（只记录真实结果）", profile.tracePermissions);
+        CheckBox debugger = addCheck(root, "调试器状态检测追踪", profile.traceDebugger);
         CheckBox stacks = addCheck(root, "记录短调用栈", profile.traceStacks);
 
         TextView note = new TextView(this);
@@ -116,6 +118,8 @@ public class AppDetailActivity extends AppCompatActivity {
             profile.traceFiles = files.isChecked();
             profile.traceCommands = commands.isChecked();
             profile.traceProperties = properties.isChecked();
+            profile.tracePermissions = permissions.isChecked();
+            profile.traceDebugger = debugger.isChecked();
             profile.traceStacks = stacks.isChecked();
             profile.traceJava = profile.anyTraceEnabled();
             profile.traceEnvironment = profile.anyTraceEnabled();
