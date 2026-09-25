@@ -132,6 +132,94 @@ public final class DetectionRuleCatalog {
         addExit(DetectionRuleIds.EXIT_NATIVE_EXIT, "Native exit/_exit 主动退出");
         addExit(DetectionRuleIds.EXIT_NATIVE_KILL, "Native kill/tgkill 主动退出");
 
+        add(DetectionRuleIds.KERNEL_UNAME_QUERY, "kernel", "Kernel uname 查询",
+                "应用通过 uname/syscall 查询内核版本与构建身份。",
+                "DuckDetector 会把 uname、/proc/version、os.version 等多个来源做一致性比较。",
+                "记录实际返回值与调用栈；如果只是查询则保持 CHECKED，只有后续命中具体异常特征才升级归因。",
+                "DuckDetector Kernel Check / Linux uname");
+        add(DetectionRuleIds.KERNEL_PROC_VERSION, "kernel", "/proc/version 查询",
+                "应用读取 /proc/version 以获取内核编译与版本信息。",
+                "DuckDetector 会把 /proc/version 与 uname、sysctl 等来源交叉比较。",
+                "仅表示执行了检查；结合具体内容和退出链判断。",
+                "DuckDetector Kernel Check");
+        add(DetectionRuleIds.KERNEL_CMDLINE_QUERY, "kernel", "/proc/cmdline 查询",
+                "应用读取 boot cmdline 以检查启动参数、内核参数或修改痕迹。",
+                "DuckDetector 对 boot cmdline 有独立规则扫描。",
+                "仅表示检查发生；不要因为读取成功就直接判定异常。",
+                "DuckDetector Kernel Check");
+        add(DetectionRuleIds.KERNEL_OSRELEASE_QUERY, "kernel", "kernel osrelease 查询",
+                "应用读取 /proc/sys/kernel/osrelease 获取运行内核版本。",
+                "DuckDetector 将其作为内核身份一致性来源之一。",
+                "结合 uname/System.getProperty(os.version) 做一致性分析。",
+                "DuckDetector Kernel Check");
+        add(DetectionRuleIds.KERNEL_SYS_VERSION_QUERY, "kernel", "kernel version 查询",
+                "应用读取 /proc/sys/kernel/version 获取内核构建信息。",
+                "DuckDetector 将其作为内核身份一致性来源之一。",
+                "结合其他内核身份来源交叉确认。",
+                "DuckDetector Kernel Check");
+        add(DetectionRuleIds.KERNEL_KPTR_QUERY, "kernel", "kptr_restrict 查询",
+                "应用读取 kptr_restrict 判断内核指针暴露策略。",
+                "DuckDetector 将 kptr_restrict 作为信息性内核安全状态。",
+                "仅记录实际值与上下文，不把它单独当成 Root 原因。",
+                "DuckDetector Kernel Check");
+
+        add(DetectionRuleIds.SELINUX_ENFORCE_READ, "selinux", "SELinux enforcing 状态读取",
+                "应用读取 selinuxfs enforcing 状态。",
+                "DuckDetector 同时比较 selinuxfs、getenforce、proc attr 等来源。",
+                "仅表示 SELinux 状态检查发生；结合实际值和多来源一致性判断。",
+                "DuckDetector SELinux");
+        add(DetectionRuleIds.SELINUX_CONTEXT_READ, "selinux", "SELinux 进程上下文读取",
+                "应用读取 /proc/self/attr/current 获取当前进程 SELinux context。",
+                "DuckDetector 会进一步分析 context 类型与 policy 一致性。",
+                "记录真实 context 与调用链；不要把读取动作本身当异常。",
+                "DuckDetector SELinux");
+        add(DetectionRuleIds.SELINUX_POLICY_READ, "selinux", "SELinux policy/selinuxfs 查询",
+                "应用访问 /sys/fs/selinux 下的 policy/status/class 等信息。",
+                "DuckDetector 会检查 policy version、security classes、permissive domain 与 policyload 状态。",
+                "仅记录具体路径和返回结果；异常归因需结合后续退出。",
+                "DuckDetector SELinux");
+        add(DetectionRuleIds.SELINUX_XATTR_QUERY, "selinux", "SELinux xattr 查询",
+                "应用通过 getxattr/lgetxattr 查询 security.selinux 等扩展属性。",
+                "DuckDetector 用文件/context 一致性作为 SELinux 完整性证据之一。",
+                "记录目标路径、attribute 名和返回结果，不修改原值。",
+                "DuckDetector SELinux / Linux xattr");
+
+        add(DetectionRuleIds.MEMORY_SMAPS_QUERY, "memory", "/proc/self/smaps 查询",
+                "应用读取 smaps 获取更细粒度的映射、权限与内存区域信息。",
+                "DuckDetector 的 Memory/Zygisk 模块会分析 smaps、匿名映射和可疑 loader 痕迹。",
+                "仅表示内存完整性检查发生；具体异常需由内容分析或后续规则确认。",
+                "DuckDetector Memory / Zygisk");
+        add(DetectionRuleIds.MEMORY_FD_QUERY, "memory", "进程 FD 扫描",
+                "应用扫描 /proc/self/fd 或其他进程 fd 以寻找 memfd、deleted SO、设备句柄等。",
+                "DuckDetector Memory/Zygisk 都包含 FD probe。",
+                "记录具体 fd 路径与 readlink 结果；单纯扫描保持 CHECKED。",
+                "DuckDetector Memory / Zygisk");
+        add(DetectionRuleIds.MEMORY_TASK_QUERY, "memory", "线程/Task 扫描",
+                "应用扫描 /proc/self/task 等线程信息。",
+                "DuckDetector Zygisk 模块包含 thread probe。",
+                "记录实际访问与调用栈；只有具体命中线程特征后再升级。",
+                "DuckDetector Zygisk");
+        add(DetectionRuleIds.MEMORY_LINKER_ENUM_QUERY, "memory", "Linker 模块枚举",
+                "应用调用 dl_iterate_phdr 等方式枚举已加载 ELF 模块。",
+                "DuckDetector 会比较 linker 视图与 /proc/self/maps 是否一致。",
+                "作为 CHECKED 证据；若后续发现 maps/linker 不一致再形成具体 finding。",
+                "DuckDetector Memory linker detector");
+        add(DetectionRuleIds.MEMORY_SIGNAL_QUERY, "memory", "Signal handler 查询/设置",
+                "应用查询或设置 sigaction，可能用于检查 SIGTRAP/SIGSEGV 等 handler 是否异常。",
+                "DuckDetector Memory 模块检查多个 signal handler 的落点与映射来源。",
+                "记录 signal、handler 与调用栈，不修改 handler。",
+                "DuckDetector Memory signal detector");
+        add(DetectionRuleIds.MEMORY_VDSO_QUERY, "memory", "vDSO / auxv 查询",
+                "应用通过 getauxval 等方式检查 vDSO 基址和运行时布局。",
+                "DuckDetector 会比较 AT_SYSINFO_EHDR 与 [vdso] mapping。",
+                "记录查询结果并与 maps 信息关联；单次查询保持 CHECKED。",
+                "DuckDetector Memory vDSO detector");
+        add(DetectionRuleIds.MEMORY_MPROTECT_QUERY, "memory", "内存权限修改/检查",
+                "应用调用 mprotect 改变或验证内存页权限，常见于完整性、自保护和 JIT 场景。",
+                "这不是单独的风险命中，但与可执行匿名映射或 Hook 检查结合时有诊断价值。",
+                "记录地址、长度、prot 与调用者 SO，仅用于归因。",
+                "Linux mprotect / DuckDetector memory model");
+
         add(DetectionRuleIds.JAVA_LOAD_LIBRARY, "instrumentation", "Java Native 库加载",
                 "应用通过 System.load/System.loadLibrary 加载 native 库；这能建立 Java 调用栈到 SO 的入口映射。",
                 "这是诊断映射事件，不是安全检测命中。与 dlopen 事件按时间/TID 对齐后，可帮助定位 Java→JNI→SO 的调用关系。",
@@ -314,7 +402,24 @@ public final class DetectionRuleCatalog {
                 || DetectionRuleIds.JAVA_DEFAULT_EXCEPTION_HANDLER_SET.equals(id)
                 || DetectionRuleIds.JAVA_THREAD_EXCEPTION_HANDLER_SET.equals(id)
                 || DetectionRuleIds.RXJAVA2_ERROR_HANDLER_SET.equals(id)
-                || DetectionRuleIds.RXJAVA3_ERROR_HANDLER_SET.equals(id);
+                || DetectionRuleIds.RXJAVA3_ERROR_HANDLER_SET.equals(id)
+                || DetectionRuleIds.KERNEL_UNAME_QUERY.equals(id)
+                || DetectionRuleIds.KERNEL_PROC_VERSION.equals(id)
+                || DetectionRuleIds.KERNEL_CMDLINE_QUERY.equals(id)
+                || DetectionRuleIds.KERNEL_OSRELEASE_QUERY.equals(id)
+                || DetectionRuleIds.KERNEL_SYS_VERSION_QUERY.equals(id)
+                || DetectionRuleIds.KERNEL_KPTR_QUERY.equals(id)
+                || DetectionRuleIds.SELINUX_ENFORCE_READ.equals(id)
+                || DetectionRuleIds.SELINUX_CONTEXT_READ.equals(id)
+                || DetectionRuleIds.SELINUX_POLICY_READ.equals(id)
+                || DetectionRuleIds.SELINUX_XATTR_QUERY.equals(id)
+                || DetectionRuleIds.MEMORY_SMAPS_QUERY.equals(id)
+                || DetectionRuleIds.MEMORY_FD_QUERY.equals(id)
+                || DetectionRuleIds.MEMORY_TASK_QUERY.equals(id)
+                || DetectionRuleIds.MEMORY_LINKER_ENUM_QUERY.equals(id)
+                || DetectionRuleIds.MEMORY_SIGNAL_QUERY.equals(id)
+                || DetectionRuleIds.MEMORY_VDSO_QUERY.equals(id)
+                || DetectionRuleIds.MEMORY_MPROTECT_QUERY.equals(id);
     }
 
     private static boolean isBooleanRule(String id) {
