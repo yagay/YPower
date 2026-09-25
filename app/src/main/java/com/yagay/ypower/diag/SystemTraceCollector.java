@@ -21,7 +21,8 @@ public final class SystemTraceCollector {
             Context context,
             String packageName,
             String sessionId,
-            DiagnosticLevel level
+            DiagnosticLevel level,
+            boolean rawSyscallTrace
     ) {
         CaptureState state = new CaptureState();
         state.sessionId = sessionId == null ? "" : sessionId;
@@ -36,6 +37,8 @@ public final class SystemTraceCollector {
         state.perfettoConfigPath = state.tempDir + "/perfetto.pbtxt";
         state.simpleperfTempPath = state.tempDir + "/perf.data";
         state.simpleperfLogPath = state.tempDir + "/simpleperf.log";
+        state.syscallTempPath = state.tempDir + "/syscall-trace.txt";
+        state.syscallLogPath = state.tempDir + "/syscall-launcher.log";
 
         RootShell.exec("mkdir -p " + ShellEscaper.q(state.tempDir) + " && chmod 700 "
                 + ShellEscaper.q(state.tempDir));
@@ -85,6 +88,30 @@ public final class SystemTraceCollector {
             state.simpleperfStartMessage = start.text();
         }
 
+        state.syscallAvailable = rawSyscallTrace && commandExists("strace");
+        if (state.syscallAvailable) {
+            String waitScript = "i=0; "
+                    + "while [ $i -lt 400 ]; do "
+                    + "p=$(pidof " + ShellEscaper.q(packageName)
+                    + " 2>/dev/null | awk '{print $1}'); "
+                    + "if [ -n \"$p\" ]; then "
+                    + "exec strace -f -tt -T -s 256 "
+                    + "-e trace=openat,readlinkat,ptrace,prctl,ioctl,mmap,mprotect,execve,kill,tgkill "
+                    + "-o " + ShellEscaper.q(state.syscallTempPath)
+                    + " -p \"$p\"; "
+                    + "fi; "
+                    + "sleep 0.05; i=$((i+1)); "
+                    + "done";
+
+            String cmd = "nohup sh -c " + ShellEscaper.q(waitScript)
+                    + " > " + ShellEscaper.q(state.syscallLogPath)
+                    + " 2>&1 </dev/null & echo $!";
+            RootShell.CommandResult start = RootShell.exec(cmd);
+            state.syscallPid = parsePid(start.text());
+            state.syscallStarted = state.syscallPid > 0;
+            state.syscallStartMessage = start.text();
+        }
+
         return state;
     }
 
@@ -105,6 +132,15 @@ public final class SystemTraceCollector {
                     "i=0; while kill -0 " + state.simpleperfPid
                             + " 2>/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done",
                     "kill -TERM " + state.simpleperfPid + " 2>/dev/null || true"
+            );
+        }
+
+        if (state.syscallStarted && state.syscallPid > 0) {
+            RootShell.exec(
+                    "kill -INT " + state.syscallPid + " 2>/dev/null || true",
+                    "i=0; while kill -0 " + state.syscallPid
+                            + " 2>/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done",
+                    "kill -TERM " + state.syscallPid + " 2>/dev/null || true"
             );
         }
 
@@ -149,6 +185,15 @@ public final class SystemTraceCollector {
             }
         }
 
+        if (state.syscallStarted && !state.syscallTempPath.isBlank()) {
+            File out = new File(dir, "syscall-trace.txt");
+            copyAsApp(state.syscallTempPath, out, uid);
+            if (out.exists() && out.length() > 0) {
+                state.syscallOutputPath = out.getAbsolutePath();
+                state.syscallBytes = out.length();
+            }
+        }
+
         if (!state.tempDir.isBlank()) {
             RootShell.exec("rm -rf " + ShellEscaper.q(state.tempDir) + " || true");
         }
@@ -161,12 +206,15 @@ public final class SystemTraceCollector {
         File perfetto = new File(dir, "session.perfetto-trace");
         File perfData = new File(dir, "perf.data");
         File perfReport = new File(dir, "simpleperf-report.txt");
+        File syscallTrace = new File(dir, "syscall-trace.txt");
 
         report.perfettoTracePath = perfetto.exists() ? perfetto.getAbsolutePath() : "";
         report.perfettoTraceBytes = perfetto.exists() ? perfetto.length() : 0L;
         report.simpleperfDataPath = perfData.exists() ? perfData.getAbsolutePath() : "";
         report.simpleperfDataBytes = perfData.exists() ? perfData.length() : 0L;
         report.simpleperfReportPath = perfReport.exists() ? perfReport.getAbsolutePath() : "";
+        report.syscallTracePath = syscallTrace.exists() ? syscallTrace.getAbsolutePath() : "";
+        report.syscallTraceBytes = syscallTrace.exists() ? syscallTrace.length() : 0L;
 
         if (perfReport.exists()) {
             try {
@@ -182,6 +230,15 @@ public final class SystemTraceCollector {
             report.raw.add("[perfetto] trace="
                     + perfetto.getAbsolutePath()
                     + " bytes=" + perfetto.length());
+        }
+
+        if (syscallTrace.exists()) {
+            try {
+                String text = Files.readString(syscallTrace.toPath(), StandardCharsets.UTF_8);
+                report.syscallSummary = limitLines(text, 160);
+                report.raw.add("[raw-syscall experimental]\n" + report.syscallSummary);
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -322,5 +379,14 @@ public final class SystemTraceCollector {
         public long simpleperfBytes;
         public String simpleperfStartMessage = "";
         public String simpleperfSummary = "";
+
+        public boolean syscallAvailable;
+        public boolean syscallStarted;
+        public int syscallPid = -1;
+        public String syscallTempPath = "";
+        public String syscallLogPath = "";
+        public String syscallOutputPath = "";
+        public long syscallBytes;
+        public String syscallStartMessage = "";
     }
 }
