@@ -47,16 +47,19 @@ public final class DetectionRuleIds {
 
     public static String forPath(String value) {
         String s = lower(value);
+
+        // Most-specific rules must win before generic parent directories such as /data/adb.
+        if (s.contains("magisk")) return ROOT_FILE_MAGISK;
+        if (s.contains("kernelsu") || s.contains("/data/adb/ksu")) return ROOT_FILE_KERNELSU;
+        if (s.contains("apatch") || s.contains("/data/adb/ap")) return ROOT_FILE_APATCH;
+        if (s.endsWith("/su") || s.contains("/system/bin/su") || s.contains("/system/xbin/su")
+                || s.equals("/sbin/su")) {
+            return ROOT_FILE_SU;
+        }
         if (s.contains("/proc/self/maps")) return HOOK_PROC_MAPS;
         if (s.contains("/proc/self/status")) return DEBUG_PROC_STATUS;
         if (s.contains("mountinfo") || s.contains("/proc/mount")) return MOUNT_PROC_MOUNT;
         if (s.contains("/data/adb")) return ROOT_DATA_ADB;
-        if (s.contains("magisk")) return ROOT_FILE_MAGISK;
-        if (s.contains("kernelsu") || s.contains("/data/adb/ksu")) return ROOT_FILE_KERNELSU;
-        if (s.contains("apatch") || s.contains("/data/adb/ap")) return ROOT_FILE_APATCH;
-        if (s.endsWith("/su") || s.contains("/system/bin/su") || s.contains("/system/xbin/su")) {
-            return ROOT_FILE_SU;
-        }
         return UNKNOWN;
     }
 
