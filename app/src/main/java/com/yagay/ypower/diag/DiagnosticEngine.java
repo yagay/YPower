@@ -511,7 +511,8 @@ public final class DiagnosticEngine {
                 + " thread=" + event.thread
                 + " input=" + event.input
                 + " result=" + event.result
-                + " matched=" + event.matched
+                + " hitState=" + event.hitState
+                + " legacyMatched=" + event.matched
                 + " exception=" + event.exception
                 + " durationNs=" + event.durationNs
                 + (event.stack == null || event.stack.isBlank()
