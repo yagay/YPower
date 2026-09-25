@@ -154,12 +154,7 @@ static const char *rule_for_path(const char *path) {
     if (path == nullptr) return "UNKNOWN";
     std::string s(path);
 
-    if (s.find("/proc/self/maps") != std::string::npos) return "HOOK_PROC_MAPS";
-    if (s.find("/proc/self/status") != std::string::npos) return "DEBUG_PROC_STATUS";
-    if (s.find("mountinfo") != std::string::npos || s.find("/proc/mount") != std::string::npos) {
-        return "MOUNT_PROC_MOUNT";
-    }
-    if (s.find("/data/adb") != std::string::npos) return "ROOT_DATA_ADB";
+    // Most-specific paths first. Do not let generic /data/adb swallow Magisk/KSU/APatch.
     if (s.find("magisk") != std::string::npos) return "ROOT_FILE_MAGISK";
     if (s.find("kernelsu") != std::string::npos || s.find("/data/adb/ksu") != std::string::npos) {
         return "ROOT_FILE_KERNELSU";
@@ -170,9 +165,16 @@ static const char *rule_for_path(const char *path) {
     size_t len = s.size();
     if ((len >= 3 && s.compare(len - 3, 3, "/su") == 0)
             || s.find("/system/bin/su") != std::string::npos
-            || s.find("/system/xbin/su") != std::string::npos) {
+            || s.find("/system/xbin/su") != std::string::npos
+            || s == "/sbin/su") {
         return "ROOT_FILE_SU";
     }
+    if (s.find("/proc/self/maps") != std::string::npos) return "HOOK_PROC_MAPS";
+    if (s.find("/proc/self/status") != std::string::npos) return "DEBUG_PROC_STATUS";
+    if (s.find("mountinfo") != std::string::npos || s.find("/proc/mount") != std::string::npos) {
+        return "MOUNT_PROC_MOUNT";
+    }
+    if (s.find("/data/adb") != std::string::npos) return "ROOT_DATA_ADB";
     return "UNKNOWN";
 }
 
