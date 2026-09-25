@@ -1,5 +1,7 @@
 package com.yagay.ypower.diag;
 
+import com.yagay.ypower.model.DetectionHitState;
+
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -37,6 +39,10 @@ public final class LogEventParser {
                 e.result = o.optString("result", "");
                 e.matched = o.optBoolean("matched", false);
                 e.exception = o.optString("exception", "");
+                String hitState = o.optString("hitState", "");
+                e.hitState = hitState.isBlank()
+                        ? DetectionRuleCatalog.evaluate(e.ruleId, e.matched, e.result, e.exception)
+                        : DetectionHitState.from(hitState, e.matched);
                 e.source = o.optString("source", "");
                 e.pid = o.optInt("pid", -1);
                 e.tid = o.optInt("tid", -1);
@@ -75,6 +81,7 @@ public final class LogEventParser {
         public String value;
         public String result;
         public boolean matched;
+        public DetectionHitState hitState = DetectionHitState.UNKNOWN;
         public String exception;
         public String source;
         public int pid;
