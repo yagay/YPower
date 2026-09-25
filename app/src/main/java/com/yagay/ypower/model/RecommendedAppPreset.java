@@ -17,6 +17,8 @@ public final class RecommendedAppPreset {
     public final boolean traceFiles;
     public final boolean traceCommands;
     public final boolean traceProperties;
+    public final boolean tracePermissions;
+    public final boolean traceDebugger;
     public final boolean traceStacks;
 
     public RecommendedAppPreset(
@@ -33,6 +35,8 @@ public final class RecommendedAppPreset {
             boolean traceFiles,
             boolean traceCommands,
             boolean traceProperties,
+            boolean tracePermissions,
+            boolean traceDebugger,
             boolean traceStacks
     ) {
         this.packageName = packageName;
@@ -48,6 +52,8 @@ public final class RecommendedAppPreset {
         this.traceFiles = traceFiles;
         this.traceCommands = traceCommands;
         this.traceProperties = traceProperties;
+        this.tracePermissions = tracePermissions;
+        this.traceDebugger = traceDebugger;
         this.traceStacks = traceStacks;
     }
 
@@ -57,6 +63,8 @@ public final class RecommendedAppPreset {
         if (traceFiles) append(b, "文件/proc");
         if (traceCommands) append(b, "命令/退出");
         if (traceProperties) append(b, "系统属性");
+        if (tracePermissions) append(b, "权限查询");
+        if (traceDebugger) append(b, "调试器检测");
         if (simulateSystemApp) append(b, "系统身份模拟");
         if (simulatePermissions) append(b, "权限状态模拟");
         if (traceStacks) append(b, "短调用栈");
