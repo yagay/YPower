@@ -28,6 +28,14 @@ public class DiagnosticReport {
     public int observedEventCount;
     public String exitSummary = "";
     public String attribution = "";
+
+    public String perfettoTracePath = "";
+    public long perfettoTraceBytes;
+    public String simpleperfDataPath = "";
+    public long simpleperfDataBytes;
+    public String simpleperfReportPath = "";
+    public String simpleperfSummary = "";
+
     public final List<DiagnosticFinding> findings = new ArrayList<>();
     public final List<String> raw = new ArrayList<>();
 
@@ -57,6 +65,21 @@ public class DiagnosticReport {
         if (!exitSummary.isBlank()) b.append("退出：").append(exitSummary).append('\n');
         if (!attribution.isBlank()) b.append("归因：").append(attribution).append('\n');
         if (!exitSummary.isBlank() || !attribution.isBlank()) b.append('\n');
+
+        if (!perfettoTracePath.isBlank() || !simpleperfDataPath.isBlank()) {
+            b.append("系统级采集：\n");
+            if (!perfettoTracePath.isBlank()) {
+                b.append("• Perfetto：")
+                        .append(perfettoTraceBytes)
+                        .append(" bytes\n");
+            }
+            if (!simpleperfDataPath.isBlank()) {
+                b.append("• simpleperf：")
+                        .append(simpleperfDataBytes)
+                        .append(" bytes\n");
+            }
+            b.append('\n');
+        }
 
         for (DiagnosticFinding finding : findings) {
             b.append("• ");
@@ -124,6 +147,21 @@ public class DiagnosticReport {
             }
             b.append('\n');
         }
+        if (!simpleperfSummary.isBlank()) {
+            b.append("simpleperf Native 调用图摘要：\n")
+                    .append(simpleperfSummary)
+                    .append("\n\n");
+        }
+        if (!perfettoTracePath.isBlank()) {
+            b.append("Perfetto Trace：").append(perfettoTracePath).append('\n');
+        }
+        if (!simpleperfDataPath.isBlank()) {
+            b.append("simpleperf 数据：").append(simpleperfDataPath).append('\n');
+        }
+        if (!simpleperfReportPath.isBlank()) {
+            b.append("simpleperf 报告：").append(simpleperfReportPath).append('\n');
+        }
+
         return b.toString();
     }
 
@@ -181,6 +219,12 @@ public class DiagnosticReport {
             o.put("exitRuleId", exitRuleId);
             o.put("exitSummary", exitSummary);
             o.put("attribution", attribution);
+            o.put("perfettoTracePath", perfettoTracePath);
+            o.put("perfettoTraceBytes", perfettoTraceBytes);
+            o.put("simpleperfDataPath", simpleperfDataPath);
+            o.put("simpleperfDataBytes", simpleperfDataBytes);
+            o.put("simpleperfReportPath", simpleperfReportPath);
+            o.put("simpleperfSummary", simpleperfSummary);
             JSONArray fs = new JSONArray();
             for (DiagnosticFinding f : findings) fs.put(f.toJson());
             o.put("findings", fs);
