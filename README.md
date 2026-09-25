@@ -219,3 +219,20 @@ YPower 不再把所有运行时事件简化成 matched=true/false。每条规则
 - JNI / Linker mapping：Java 侧记录 System.load/System.loadLibrary 调用栈，Native 侧记录 ByteHook dlopen callback 和筛选后的 dlsym（JNI_OnLoad、Java_*、RegisterNatives 及 root/debug/security/integrity/check 等相关符号），并按时间与 TID 建立 Java→SO→symbol 映射。
 
 这些数据属于诊断证据，不修改目标 App 返回值，也不会把单纯的库加载事件当成安全风险归因。
+
+
+### 异常传播层
+
+运行时诊断现在增加“检测 → 异常传播 → Fatal/退出”中间层，并保持只观察、不接管异常：
+
+- Java Fatal：Hook `Thread.dispatchUncaughtException(Throwable)`，在目标 App 原有 `UncaughtExceptionHandler` 之前记录 Throwable，然后原样继续处理链。
+- Handler 安装：记录 `Thread.setDefaultUncaughtExceptionHandler` 与线程级 `setUncaughtExceptionHandler`，用于识别 Crashlytics/Bugly/Sentry/自有 Handler 等最终处理者。
+- Kotlin Coroutine：如果目标 APK 包含 kotlinx.coroutines，动态 Hook `CoroutineExceptionHandlerKt.handleCoroutineException(...)`。
+- RxJava2/3：如果对应版本存在，动态 Hook `RxJavaPlugins.onError(Throwable)` 与 `setErrorHandler(...)`。
+- 可选框架通过目标 App 的默认 ClassLoader 查找；没有依赖时不会安装对应 Hook。
+
+每条异常事件记录 exceptionClass、message、cause、suppressed 数量、Throwable identity、PID/TID/线程、完整 Throwable 业务栈和 sessionId。
+
+YPower 会把相同 Throwable identity 的 Coroutine/RxJava 事件与 Java uncaught 直接串联；如果 identity 不同但同 TID 且时间紧邻，也会记录弱传播关系。
+
+安全规则的归因不会被异常事件取代：error 类 finding 不参与主要/次要安全原因竞争，而是作为中间证据。安全检测与 Java Fatal 同线程、时间紧邻或共享业务调用栈时，会获得额外的“检测 → 异常 → 退出”因果分。
