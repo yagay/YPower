@@ -77,6 +77,34 @@ public final class DetectionRuleIds {
     public static final String MEMORY_VDSO_QUERY = "MEMORY_VDSO_QUERY";
     public static final String MEMORY_MPROTECT_QUERY = "MEMORY_MPROTECT_QUERY";
 
+    public static final String KEYSTORE_INSTANCE_QUERY = "KEYSTORE_INSTANCE_QUERY";
+    public static final String KEY_ATTESTATION_CHALLENGE = "KEY_ATTESTATION_CHALLENGE";
+    public static final String KEY_STRONGBOX_REQUEST = "KEY_STRONGBOX_REQUEST";
+    public static final String KEY_CERT_CHAIN_QUERY = "KEY_CERT_CHAIN_QUERY";
+    public static final String KEY_SECURITY_LEVEL_QUERY = "KEY_SECURITY_LEVEL_QUERY";
+    public static final String PLAY_INTEGRITY_REQUEST = "PLAY_INTEGRITY_REQUEST";
+    public static final String PLAY_INTEGRITY_STANDARD_PREPARE = "PLAY_INTEGRITY_STANDARD_PREPARE";
+    public static final String PLAY_INTEGRITY_STANDARD_REQUEST = "PLAY_INTEGRITY_STANDARD_REQUEST";
+    public static final String PLAY_INTEGRITY_TOKEN_QUERY = "PLAY_INTEGRITY_TOKEN_QUERY";
+
+    public static final String SELINUX_ACCESS_PROBE = "SELINUX_ACCESS_PROBE";
+    public static final String SELINUX_STATUS_SEQNO = "SELINUX_STATUS_SEQNO";
+    public static final String SELINUX_POLICYLOAD_QUERY = "SELINUX_POLICYLOAD_QUERY";
+    public static final String APP_ZYGOTE_PROBE = "APP_ZYGOTE_PROBE";
+
+    public static final String PROCESS_FORK_QUERY = "PROCESS_FORK_QUERY";
+    public static final String PROCESS_WAITPID_QUERY = "PROCESS_WAITPID_QUERY";
+    public static final String PTRACE_ATTACH_QUERY = "PTRACE_ATTACH_QUERY";
+    public static final String PTRACE_EVENTMSG_QUERY = "PTRACE_EVENTMSG_QUERY";
+    public static final String PTRACE_SYSCALL_QUERY = "PTRACE_SYSCALL_QUERY";
+    public static final String PTRACE_DETACH_QUERY = "PTRACE_DETACH_QUERY";
+
+    public static final String APP_SIGNATURE_QUERY = "APP_SIGNATURE_QUERY";
+    public static final String SELF_APK_READ = "SELF_APK_READ";
+    public static final String SELF_DEX_READ = "SELF_DEX_READ";
+    public static final String SELF_SO_READ = "SELF_SO_READ";
+    public static final String CERTIFICATE_DIGEST_QUERY = "CERTIFICATE_DIGEST_QUERY";
+
     public static String forPath(String value) {
         String s = lower(value);
 
@@ -98,6 +126,9 @@ public final class DetectionRuleIds {
         if (s.equals("/proc/sys/kernel/osrelease")) return KERNEL_OSRELEASE_QUERY;
         if (s.equals("/proc/sys/kernel/version")) return KERNEL_SYS_VERSION_QUERY;
         if (s.equals("/proc/sys/kernel/kptr_restrict")) return KERNEL_KPTR_QUERY;
+        if (s.equals("/sys/fs/selinux/access")) return SELINUX_ACCESS_PROBE;
+        if (s.equals("/sys/fs/selinux/status")) return SELINUX_STATUS_SEQNO;
+        if (s.equals("/sys/fs/selinux/policyload")) return SELINUX_POLICYLOAD_QUERY;
         if (s.equals("/sys/fs/selinux/enforce")) return SELINUX_ENFORCE_READ;
         if (s.equals("/proc/self/attr/current")) return SELINUX_CONTEXT_READ;
         if (s.startsWith("/sys/fs/selinux/")) return SELINUX_POLICY_READ;
