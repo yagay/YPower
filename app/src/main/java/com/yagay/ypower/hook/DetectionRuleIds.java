@@ -48,6 +48,15 @@ public final class DetectionRuleIds {
     public static final String LINKER_DLOPEN = "LINKER_DLOPEN";
     public static final String LINKER_DLSYM = "LINKER_DLSYM";
 
+    public static final String JAVA_UNCAUGHT_EXCEPTION = "JAVA_UNCAUGHT_EXCEPTION";
+    public static final String JAVA_DEFAULT_EXCEPTION_HANDLER_SET = "JAVA_DEFAULT_EXCEPTION_HANDLER_SET";
+    public static final String JAVA_THREAD_EXCEPTION_HANDLER_SET = "JAVA_THREAD_EXCEPTION_HANDLER_SET";
+    public static final String COROUTINE_UNHANDLED_EXCEPTION = "COROUTINE_UNHANDLED_EXCEPTION";
+    public static final String RXJAVA2_GLOBAL_ERROR = "RXJAVA2_GLOBAL_ERROR";
+    public static final String RXJAVA3_GLOBAL_ERROR = "RXJAVA3_GLOBAL_ERROR";
+    public static final String RXJAVA2_ERROR_HANDLER_SET = "RXJAVA2_ERROR_HANDLER_SET";
+    public static final String RXJAVA3_ERROR_HANDLER_SET = "RXJAVA3_ERROR_HANDLER_SET";
+
     public static String forPath(String value) {
         String s = lower(value);
 
