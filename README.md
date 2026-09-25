@@ -267,3 +267,44 @@ YPower 会把相同 Throwable identity 的 Coroutine/RxJava 事件与 Java uncau
 时才启动。当前观察 openat/readlinkat/ptrace/prctl/ioctl/mmap/mprotect/execve/kill/tgkill，并保存 `syscall-trace.txt`。
 
 因为 strace 本身使用 ptrace，可能改变 TracerPid 或触发目标 App 的反调试逻辑，所以它只作为实验验证层，不参与默认诊断。
+
+
+### 现代安全 API 与组合检测链
+
+YPower 现已增加以下 observe-only 监控，不修改目标 App 返回值：
+
+- AndroidKeyStore / Key Attestation：
+  - KeyStore.getInstance / getCertificateChain
+  - KeyGenParameterSpec.Builder.setAttestationChallenge
+  - setIsStrongBoxBacked
+  - KeyInfo security level / secure hardware 查询
+- Play Integrity：
+  - Classic IntegrityManager requestIntegrityToken
+  - StandardIntegrityManager prepare / request
+  - token 读取只记录是否存在与长度，不保存完整 token
+- DirtySepolicy / SELinux：
+  - /sys/fs/selinux/access
+  - status / policyload
+  - selinux_check_access
+  - 结合已有 context / selinuxfs / xattr 追踪
+- Zygisk / ptrace：
+  - fork / vfork
+  - waitpid
+  - PTRACE_ATTACH
+  - PTRACE_GETEVENTMSG
+  - PTRACE_SYSCALL
+  - PTRACE_DETACH
+- App 自完整性：
+  - 自身 SigningInfo 查询
+  - APK / DEX / SO 读取
+  - 与完整性调用栈相关的 MessageDigest 摘要计算
+
+YPower 会把同一会话中接近的关键步骤组合成五类 Flow：
+
+- ATTESTATION_FLOW
+- PLAY_INTEGRITY_FLOW
+- DIRTY_SEPOLICY_FLOW
+- ZYGISK_PTRACE_FLOW
+- SELF_INTEGRITY_FLOW
+
+Flow 默认仍为 CHECKED，不等于检测结果已经失败；只有拿到明确 HIT、异常传播或稳定退出关联后才提高归因。
