@@ -87,6 +87,7 @@ public final class DiagnosticEngine {
 
         if (level == DiagnosticLevel.DEEP) {
             collectTargetLogcat(report);
+            SystemTraceCollector.attachToReport(context, report);
         }
 
         CorrelationEngine.analyze(report);
