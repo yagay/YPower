@@ -147,6 +147,48 @@ public final class DetectionRuleCatalog {
                 "dlsym 记录可以补充 native 符号解析路径，但并不能覆盖所有 RegisterNatives 间接调用。",
                 "用于 JNI/Linker 映射，不作为安全风险归因项。",
                 "Android linker / ByteHook");
+
+        add(DetectionRuleIds.JAVA_UNCAUGHT_EXCEPTION, "error", "Java 未捕获异常",
+                "异常已经冒泡到线程顶层并进入 Thread 的未捕获异常分发路径。",
+                "这是 Java Fatal 的强证据；YPower 只在原处理链之前记录 Throwable，不替换也不吞掉目标 App 的 Handler。",
+                "优先查看异常类型、message、业务栈以及它前面的安全检测事件；修复真正抛出异常的业务/权限/状态问题。",
+                "Android Thread / RuntimeInit");
+        add(DetectionRuleIds.COROUTINE_UNHANDLED_EXCEPTION, "error", "Kotlin 协程未处理异常",
+                "kotlinx.coroutines 将无法继续由普通协程传播路径处理的异常交给 CoroutineExceptionHandler。",
+                "协程异常不一定导致进程退出；它只是异常传播层证据，后续如果同一个 Throwable 又进入 Java uncaught，可信度会显著提高。",
+                "检查具体 CoroutineContext、Throwable 和调用栈；不要把它单独等同于进程 Crash。",
+                "kotlinx.coroutines CoroutineExceptionHandler");
+        add(DetectionRuleIds.RXJAVA2_GLOBAL_ERROR, "error", "RxJava2 全局错误",
+                "RxJava2 将无法正常交付给下游的异步错误交给 RxJavaPlugins.onError。",
+                "全局 RxJava error 不一定是 Fatal；它属于异步传播证据，需要结合后续 uncaught/exit 再判断。",
+                "检查 Throwable、UndeliverableException 根因以及后续是否进入未捕获异常或主动退出。",
+                "RxJava2 RxJavaPlugins");
+        add(DetectionRuleIds.RXJAVA3_GLOBAL_ERROR, "error", "RxJava3 全局错误",
+                "RxJava3 将无法正常交付给下游的异步错误交给 RxJavaPlugins.onError。",
+                "全局 RxJava error 不一定是 Fatal；它属于异步传播证据，需要结合后续 uncaught/exit 再判断。",
+                "检查 Throwable、UndeliverableException 根因以及后续是否进入未捕获异常或主动退出。",
+                "RxJava3 RxJavaPlugins");
+
+        add(DetectionRuleIds.JAVA_DEFAULT_EXCEPTION_HANDLER_SET, "instrumentation", "设置全局异常处理器",
+                "目标 App 或第三方 SDK 设置了默认 Thread.UncaughtExceptionHandler。",
+                "该事件用于解释 Crashlytics/Bugly/Sentry/自有 Handler 的崩溃处理链，不属于安全风险命中。",
+                "仅用于调用链解释，不作为安全检测原因。",
+                "Java Thread.UncaughtExceptionHandler");
+        add(DetectionRuleIds.JAVA_THREAD_EXCEPTION_HANDLER_SET, "instrumentation", "设置线程异常处理器",
+                "目标 App 为单独线程设置了 Thread.UncaughtExceptionHandler。",
+                "该事件用于解释线程级崩溃处理链，不属于安全风险命中。",
+                "仅用于调用链解释，不作为安全检测原因。",
+                "Java Thread.UncaughtExceptionHandler");
+        add(DetectionRuleIds.RXJAVA2_ERROR_HANDLER_SET, "instrumentation", "设置 RxJava2 全局错误处理器",
+                "目标 App 或 SDK 安装了 RxJava2 全局 error handler。",
+                "该事件用于说明异步错误最终可能被谁消费，不属于安全风险命中。",
+                "仅用于异常传播解释。",
+                "RxJava2 RxJavaPlugins");
+        add(DetectionRuleIds.RXJAVA3_ERROR_HANDLER_SET, "instrumentation", "设置 RxJava3 全局错误处理器",
+                "目标 App 或 SDK 安装了 RxJava3 全局 error handler。",
+                "该事件用于说明异步错误最终可能被谁消费，不属于安全风险命中。",
+                "仅用于异常传播解释。",
+                "RxJava3 RxJavaPlugins");
     }
 
     private DetectionRuleCatalog() {}
@@ -220,7 +262,7 @@ public final class DetectionRuleCatalog {
             return DetectionHitState.CHECKED;
         }
 
-        if (isExit(ruleId)) {
+        if (isExit(ruleId) || isErrorEvent(ruleId)) {
             return DetectionHitState.HIT;
         }
 
@@ -268,7 +310,11 @@ public final class DetectionRuleCatalog {
                 || DetectionRuleIds.NATIVE_PTRACE.equals(id)
                 || DetectionRuleIds.JAVA_LOAD_LIBRARY.equals(id)
                 || DetectionRuleIds.LINKER_DLOPEN.equals(id)
-                || DetectionRuleIds.LINKER_DLSYM.equals(id);
+                || DetectionRuleIds.LINKER_DLSYM.equals(id)
+                || DetectionRuleIds.JAVA_DEFAULT_EXCEPTION_HANDLER_SET.equals(id)
+                || DetectionRuleIds.JAVA_THREAD_EXCEPTION_HANDLER_SET.equals(id)
+                || DetectionRuleIds.RXJAVA2_ERROR_HANDLER_SET.equals(id)
+                || DetectionRuleIds.RXJAVA3_ERROR_HANDLER_SET.equals(id);
     }
 
     private static boolean isBooleanRule(String id) {
@@ -295,6 +341,13 @@ public final class DetectionRuleCatalog {
 
     private static boolean isExit(String id) {
         return id != null && id.startsWith("EXIT_");
+    }
+
+    private static boolean isErrorEvent(String id) {
+        return DetectionRuleIds.JAVA_UNCAUGHT_EXCEPTION.equals(id)
+                || DetectionRuleIds.COROUTINE_UNHANDLED_EXCEPTION.equals(id)
+                || DetectionRuleIds.RXJAVA2_GLOBAL_ERROR.equals(id)
+                || DetectionRuleIds.RXJAVA3_GLOBAL_ERROR.equals(id);
     }
 
     private static DetectionHitState evaluateProperty(String ruleId, String value) {
