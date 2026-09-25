@@ -77,6 +77,7 @@ public final class YPowerModule extends XposedModule {
         }
 
         if (profile.traceNative) {
+            installLinkerTraceHooks(profile);
             boolean enabled = NativeTraceBridge.enable(pkg, profile.diagnosticSessionId);
             traceMeta(
                     profile,
@@ -682,6 +683,51 @@ public final class YPowerModule extends XposedModule {
             }
         } catch (Throwable t) {
             log(Log.WARN, TAG, "SystemProperties hooks failed: " + t);
+        }
+    }
+
+    public void installLinkerTraceHooks(AppProfile profile) {
+        for (String methodName : new String[]{"load", "loadLibrary"}) {
+            try {
+                Method method = System.class.getDeclaredMethod(methodName, String.class);
+                hook(method).intercept(chain -> {
+                    String target = stringArg(chain.getArg(0));
+                    long startNs = System.nanoTime();
+
+                    try {
+                        Object result = chain.proceed();
+                        traceCall(
+                                profile,
+                                "linker",
+                                DetectionRuleIds.JAVA_LOAD_LIBRARY,
+                                "System." + methodName + " " + target,
+                                "loaded",
+                                false,
+                                "",
+                                "java.lang.System." + methodName,
+                                startNs,
+                                true
+                        );
+                        return result;
+                    } catch (Throwable t) {
+                        traceCall(
+                                profile,
+                                "linker",
+                                DetectionRuleIds.JAVA_LOAD_LIBRARY,
+                                "System." + methodName + " " + target,
+                                "",
+                                false,
+                                throwableText(t),
+                                "java.lang.System." + methodName,
+                                startNs,
+                                true
+                        );
+                        throw t;
+                    }
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "System." + methodName + " hook failed: " + t);
+            }
         }
     }
 
