@@ -96,6 +96,7 @@ public class AppDetailActivity extends AppCompatActivity {
         CheckBox properties = addCheck(root, "系统属性 / Boot 状态查询追踪", profile.traceProperties);
         CheckBox permissions = addCheck(root, "权限状态查询追踪（只记录真实结果）", profile.tracePermissions);
         CheckBox debugger = addCheck(root, "调试器状态检测追踪", profile.traceDebugger);
+        CheckBox nativeTrace = addCheck(root, "Native 深度追踪（ByteHook，风险更高）", profile.traceNative);
         CheckBox stacks = addCheck(root, "记录短调用栈", profile.traceStacks);
 
         TextView note = new TextView(this);
@@ -120,6 +121,7 @@ public class AppDetailActivity extends AppCompatActivity {
             profile.traceProperties = properties.isChecked();
             profile.tracePermissions = permissions.isChecked();
             profile.traceDebugger = debugger.isChecked();
+            profile.traceNative = nativeTrace.isChecked();
             profile.traceStacks = stacks.isChecked();
             profile.traceJava = profile.anyTraceEnabled();
             profile.traceEnvironment = profile.anyTraceEnabled();
