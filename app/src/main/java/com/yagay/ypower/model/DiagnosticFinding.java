@@ -20,6 +20,7 @@ public class DiagnosticFinding {
 
     // Precise runtime attribution metadata.
     public String ruleId = "";
+    public DetectionHitState representativeState = DetectionHitState.UNKNOWN;
     public int totalCount;
     public int checkedCount;
     public int hitCount;
@@ -74,6 +75,7 @@ public class DiagnosticFinding {
             o.put("correlationScore", correlationScore);
             o.put("attributionRank", attributionRank);
             o.put("ruleId", ruleId);
+            o.put("representativeState", representativeState.name());
             o.put("totalCount", totalCount);
             o.put("checkedCount", checkedCount);
             o.put("hitCount", hitCount);
