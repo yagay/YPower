@@ -191,6 +191,8 @@ public final class DiagnosticEngine {
             report.exitRuleId = explicitExit.ruleId;
         }
 
+        buildLinkerMappings(events, report);
+
         Map<String, DiagnosticFinding> findings = new LinkedHashMap<>();
 
         for (LogEventParser.TraceEvent event : events) {
@@ -266,6 +268,66 @@ public final class DiagnosticEngine {
                     + " / NOT_HIT " + finding.notHitCount
                     + " / UNKNOWN " + finding.unknownCount + "）";
             report.findings.add(finding);
+        }
+    }
+
+    private static void buildLinkerMappings(
+            List<LogEventParser.TraceEvent> events,
+            DiagnosticReport report
+    ) {
+        List<LogEventParser.TraceEvent> javaLoads = new ArrayList<>();
+        for (LogEventParser.TraceEvent event : events) {
+            if (DetectionRuleIds.JAVA_LOAD_LIBRARY.equals(event.ruleId)) {
+                javaLoads.add(event);
+            }
+        }
+
+        for (LogEventParser.TraceEvent event : events) {
+            if (DetectionRuleIds.LINKER_DLOPEN.equals(event.ruleId)
+                    && "loaded".equals(event.result)) {
+                LogEventParser.TraceEvent closest = null;
+                long best = Long.MAX_VALUE;
+
+                for (LogEventParser.TraceEvent javaLoad : javaLoads) {
+                    long delta = Math.abs(event.ts - javaLoad.ts);
+                    if (delta > 1500) continue;
+
+                    if (event.tid >= 0 && javaLoad.tid >= 0 && event.tid != javaLoad.tid) {
+                        delta += 1000;
+                    }
+
+                    if (delta < best) {
+                        best = delta;
+                        closest = javaLoad;
+                    }
+                }
+
+                String mapping;
+                if (closest != null) {
+                    mapping = closest.input
+                            + " → " + event.input
+                            + "（Δ=" + Math.abs(event.ts - closest.ts) + "ms"
+                            + (event.tid == closest.tid ? "，同TID" : "")
+                            + "）";
+                } else {
+                    mapping = event.input + "（Native dlopen）";
+                }
+
+                if (!report.linkerMappings.contains(mapping)) {
+                    report.linkerMappings.add(mapping);
+                }
+            }
+
+            if (DetectionRuleIds.LINKER_DLSYM.equals(event.ruleId)) {
+                String mapping = event.source
+                        + " → " + event.input
+                        + (event.result == null || event.result.isBlank()
+                        ? ""
+                        : " = " + event.result);
+                if (!report.linkerMappings.contains(mapping)) {
+                    report.linkerMappings.add(mapping);
+                }
+            }
         }
     }
 
