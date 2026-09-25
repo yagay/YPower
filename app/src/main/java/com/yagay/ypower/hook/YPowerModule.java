@@ -12,6 +12,7 @@ import android.util.Log;
 
 import com.yagay.ypower.hook.provider.CommandTraceHookProvider;
 import com.yagay.ypower.hook.provider.DebuggerTraceHookProvider;
+import com.yagay.ypower.hook.provider.ExceptionTraceHookProvider;
 import com.yagay.ypower.hook.provider.FileTraceHookProvider;
 import com.yagay.ypower.hook.provider.HookProvider;
 import com.yagay.ypower.hook.provider.IdentityHookProvider;
@@ -41,6 +42,7 @@ public final class YPowerModule extends XposedModule {
     private static final String GROUP = "ypower";
 
     private String activePackageName = "";
+    private ClassLoader targetClassLoader;
 
     private static final List<HookProvider> PROVIDERS = List.of(
             new IdentityHookProvider(),
@@ -49,7 +51,8 @@ public final class YPowerModule extends XposedModule {
             new FileTraceHookProvider(),
             new CommandTraceHookProvider(),
             new PropertyTraceHookProvider(),
-            new DebuggerTraceHookProvider()
+            new DebuggerTraceHookProvider(),
+            new ExceptionTraceHookProvider()
     );
 
     @Override
@@ -63,6 +66,11 @@ public final class YPowerModule extends XposedModule {
         if (!profile.enabled) return;
 
         activePackageName = pkg;
+        try {
+            targetClassLoader = param.getDefaultClassLoader();
+        } catch (Throwable ignored) {
+            targetClassLoader = null;
+        }
         traceMeta(profile, "module", "enabled package=" + pkg, "module");
 
         for (HookProvider provider : PROVIDERS) {
@@ -686,6 +694,204 @@ public final class YPowerModule extends XposedModule {
         }
     }
 
+    public void installExceptionTraceHooks(AppProfile profile) {
+        installThreadExceptionHooks(profile);
+        installCoroutineExceptionHooks(profile);
+        installRxJavaExceptionHooks(profile, "io.reactivex.plugins.RxJavaPlugins", false);
+        installRxJavaExceptionHooks(profile, "io.reactivex.rxjava3.plugins.RxJavaPlugins", true);
+    }
+
+    private void installThreadExceptionHooks(AppProfile profile) {
+        try {
+            Method dispatch = Thread.class.getDeclaredMethod(
+                    "dispatchUncaughtException",
+                    Throwable.class
+            );
+            hook(dispatch).intercept(chain -> {
+                Throwable throwable = chain.getArg(0) instanceof Throwable
+                        ? (Throwable) chain.getArg(0)
+                        : null;
+                Thread target = chain.getThisObject() instanceof Thread
+                        ? (Thread) chain.getThisObject()
+                        : Thread.currentThread();
+
+                traceThrowableEvent(
+                        profile,
+                        "java_exception",
+                        DetectionRuleIds.JAVA_UNCAUGHT_EXCEPTION,
+                        throwable,
+                        "Thread.dispatchUncaughtException",
+                        target == null ? "" : target.getName()
+                );
+                return chain.proceed();
+            });
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Thread.dispatchUncaughtException hook failed: " + t);
+        }
+
+        try {
+            Method setDefault = Thread.class.getDeclaredMethod(
+                    "setDefaultUncaughtExceptionHandler",
+                    Thread.UncaughtExceptionHandler.class
+            );
+            hook(setDefault).intercept(chain -> {
+                Object handler = chain.getArg(0);
+                traceCall(
+                        profile,
+                        "exception_handler",
+                        DetectionRuleIds.JAVA_DEFAULT_EXCEPTION_HANDLER_SET,
+                        handlerClassName(handler),
+                        "installed",
+                        false,
+                        "",
+                        "Thread.setDefaultUncaughtExceptionHandler",
+                        System.nanoTime(),
+                        true
+                );
+                return chain.proceed();
+            });
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Thread.setDefaultUncaughtExceptionHandler hook failed: " + t);
+        }
+
+        try {
+            Method setThread = Thread.class.getDeclaredMethod(
+                    "setUncaughtExceptionHandler",
+                    Thread.UncaughtExceptionHandler.class
+            );
+            hook(setThread).intercept(chain -> {
+                Object handler = chain.getArg(0);
+                Thread target = chain.getThisObject() instanceof Thread
+                        ? (Thread) chain.getThisObject()
+                        : null;
+
+                traceCall(
+                        profile,
+                        "exception_handler",
+                        DetectionRuleIds.JAVA_THREAD_EXCEPTION_HANDLER_SET,
+                        "thread=" + (target == null ? "" : target.getName())
+                                + " handler=" + handlerClassName(handler),
+                        "installed",
+                        false,
+                        "",
+                        "Thread.setUncaughtExceptionHandler",
+                        System.nanoTime(),
+                        true
+                );
+                return chain.proceed();
+            });
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Thread.setUncaughtExceptionHandler hook failed: " + t);
+        }
+    }
+
+    private void installCoroutineExceptionHooks(AppProfile profile) {
+        Class<?> clazz = findTargetClass("kotlinx.coroutines.CoroutineExceptionHandlerKt");
+        if (clazz == null) return;
+
+        for (Method method : clazz.getDeclaredMethods()) {
+            if (!"handleCoroutineException".equals(method.getName())) continue;
+            if (method.getParameterCount() < 2) continue;
+
+            try {
+                hook(method).intercept(chain -> {
+                    Throwable throwable = null;
+                    Object context = null;
+
+                    for (int i = 0; i < method.getParameterCount(); i++) {
+                        Object arg = chain.getArg(i);
+                        if (arg instanceof Throwable) throwable = (Throwable) arg;
+                        else if (context == null) context = arg;
+                    }
+
+                    traceThrowableEvent(
+                            profile,
+                            "coroutine_exception",
+                            DetectionRuleIds.COROUTINE_UNHANDLED_EXCEPTION,
+                            throwable,
+                            "CoroutineExceptionHandlerKt.handleCoroutineException",
+                            context == null ? "" : String.valueOf(context)
+                    );
+                    return chain.proceed();
+                });
+            } catch (Throwable t) {
+                log(Log.WARN, TAG, "CoroutineExceptionHandler hook failed: " + t);
+            }
+        }
+    }
+
+    private void installRxJavaExceptionHooks(
+            AppProfile profile,
+            String className,
+            boolean rxJava3
+    ) {
+        Class<?> clazz = findTargetClass(className);
+        if (clazz == null) return;
+
+        String errorRule = rxJava3
+                ? DetectionRuleIds.RXJAVA3_GLOBAL_ERROR
+                : DetectionRuleIds.RXJAVA2_GLOBAL_ERROR;
+        String handlerRule = rxJava3
+                ? DetectionRuleIds.RXJAVA3_ERROR_HANDLER_SET
+                : DetectionRuleIds.RXJAVA2_ERROR_HANDLER_SET;
+
+        for (Method method : clazz.getDeclaredMethods()) {
+            String name = method.getName();
+
+            if ("onError".equals(name) && method.getParameterCount() == 1) {
+                try {
+                    hook(method).intercept(chain -> {
+                        Object arg = chain.getArg(0);
+                        Throwable throwable = arg instanceof Throwable ? (Throwable) arg : null;
+                        traceThrowableEvent(
+                                profile,
+                                "rxjava_error",
+                                errorRule,
+                                throwable,
+                                className + ".onError",
+                                ""
+                        );
+                        return chain.proceed();
+                    });
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, className + ".onError hook failed: " + t);
+                }
+            }
+
+            if ("setErrorHandler".equals(name) && method.getParameterCount() == 1) {
+                try {
+                    hook(method).intercept(chain -> {
+                        Object handler = chain.getArg(0);
+                        traceCall(
+                                profile,
+                                "exception_handler",
+                                handlerRule,
+                                handlerClassName(handler),
+                                "installed",
+                                false,
+                                "",
+                                className + ".setErrorHandler",
+                                System.nanoTime(),
+                                true
+                        );
+                        return chain.proceed();
+                    });
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, className + ".setErrorHandler hook failed: " + t);
+                }
+            }
+        }
+    }
+
+    private Class<?> findTargetClass(String className) {
+        if (targetClassLoader == null) return null;
+        try {
+            return Class.forName(className, false, targetClassLoader);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     public void installLinkerTraceHooks(AppProfile profile) {
         for (String methodName : new String[]{"load", "loadLibrary"}) {
             try {
@@ -1022,6 +1228,105 @@ public final class YPowerModule extends XposedModule {
 
     private static String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private void traceThrowableEvent(
+            AppProfile profile,
+            String type,
+            String ruleId,
+            Throwable throwable,
+            String source,
+            String context
+    ) {
+        long ts = System.currentTimeMillis();
+        int pid = android.os.Process.myPid();
+        int tid = android.os.Process.myTid();
+        Thread thread = Thread.currentThread();
+
+        String processName;
+        try {
+            processName = Application.getProcessName();
+        } catch (Throwable ignored) {
+            processName = "";
+        }
+
+        String sessionId = profile == null || profile.diagnosticSessionId == null
+                ? ""
+                : profile.diagnosticSessionId;
+
+        String throwableId = throwable == null
+                ? ""
+                : Integer.toHexString(System.identityHashCode(throwable));
+        String exceptionClass = throwable == null ? "" : throwable.getClass().getName();
+        String exceptionMessage = throwable == null || throwable.getMessage() == null
+                ? ""
+                : throwable.getMessage();
+        String cause = throwable == null || throwable.getCause() == null
+                ? ""
+                : throwableText(throwable.getCause());
+        int suppressedCount = throwable == null ? 0 : throwable.getSuppressed().length;
+        String stack = throwableStack(throwable, 40);
+
+        DetectionHitState hitState = DetectionRuleCatalog.evaluate(
+                ruleId,
+                true,
+                throwableId,
+                throwableText(throwable)
+        );
+
+        String input = exceptionClass
+                + (exceptionMessage.isBlank() ? "" : ": " + exceptionMessage)
+                + (context == null || context.isBlank() ? "" : " | context=" + context);
+
+        String json = "{\"ts\":" + ts
+                + ",\"package\":\"" + escapeJson(activePackageName) + "\""
+                + ",\"sessionId\":\"" + escapeJson(sessionId) + "\""
+                + ",\"type\":\"" + escapeJson(type) + "\""
+                + ",\"ruleId\":\"" + escapeJson(ruleId) + "\""
+                + ",\"input\":\"" + escapeJson(input) + "\""
+                + ",\"value\":\"" + escapeJson(input) + "\""
+                + ",\"result\":\"" + escapeJson(throwableId) + "\""
+                + ",\"matched\":true"
+                + ",\"hitState\":\"" + hitState.name() + "\""
+                + ",\"exception\":\"" + escapeJson(throwableText(throwable)) + "\""
+                + ",\"exceptionClass\":\"" + escapeJson(exceptionClass) + "\""
+                + ",\"exceptionMessage\":\"" + escapeJson(exceptionMessage) + "\""
+                + ",\"throwableId\":\"" + escapeJson(throwableId) + "\""
+                + ",\"cause\":\"" + escapeJson(cause) + "\""
+                + ",\"suppressedCount\":" + suppressedCount
+                + ",\"source\":\"" + escapeJson(source) + "\""
+                + ",\"pid\":" + pid
+                + ",\"tid\":" + tid
+                + ",\"thread\":\"" + escapeJson(thread.getName()) + "\""
+                + ",\"process\":\"" + escapeJson(processName) + "\""
+                + ",\"durationNs\":0"
+                + ",\"stack\":\"" + escapeJson(stack) + "\"}";
+
+        log(Log.INFO, TAG, json);
+        Log.i(TAG, json);
+    }
+
+    private static String throwableStack(Throwable throwable, int maxFrames) {
+        if (throwable == null) return "";
+
+        StringBuilder out = new StringBuilder();
+        StackTraceElement[] frames = throwable.getStackTrace();
+        int count = Math.min(frames.length, maxFrames);
+
+        for (int i = 0; i < count; i++) {
+            if (i > 0) out.append(" <- ");
+            StackTraceElement frame = frames[i];
+            out.append(frame.getClassName())
+                    .append('.')
+                    .append(frame.getMethodName())
+                    .append(':')
+                    .append(frame.getLineNumber());
+        }
+        return out.toString();
+    }
+
+    private static String handlerClassName(Object handler) {
+        return handler == null ? "null" : handler.getClass().getName();
     }
 
     private void traceMeta(AppProfile profile, String type, String value, String source) {
