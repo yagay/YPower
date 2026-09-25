@@ -37,6 +37,7 @@ public final class RuntimeDiagnosticSession {
         tracing.traceProperties = true;
         tracing.tracePermissions = true;
         tracing.traceDebugger = true;
+        tracing.traceExceptions = true;
         tracing.traceNative = level == DiagnosticLevel.DEEP;
         tracing.traceStacks = level != DiagnosticLevel.QUICK;
         tracing.traceJava = true;
