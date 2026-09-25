@@ -17,6 +17,24 @@ public class DiagnosticFinding {
     public int correlationScore;
     // 0 = not attributed, 1 = primary cause candidate, 2 = secondary cause candidate.
     public int attributionRank;
+
+    // Precise runtime attribution metadata.
+    public String ruleId = "";
+    public int totalCount;
+    public int matchedCount;
+    public long closestEventTimestamp;
+    public long closestDeltaMs = Long.MAX_VALUE;
+    public int pid = -1;
+    public int tid = -1;
+    public String thread = "";
+    public String source = "";
+    public String input = "";
+    public String result = "";
+    public String exception = "";
+    public long durationNs;
+    public String stack = "";
+    public int sharedExitFrames;
+    public boolean sameThreadAsExit;
     public final List<String> evidence = new ArrayList<>();
     public final List<FixRecommendation> recommendations = new ArrayList<>();
 
@@ -50,6 +68,22 @@ public class DiagnosticFinding {
             o.put("detail", detail);
             o.put("correlationScore", correlationScore);
             o.put("attributionRank", attributionRank);
+            o.put("ruleId", ruleId);
+            o.put("totalCount", totalCount);
+            o.put("matchedCount", matchedCount);
+            o.put("closestEventTimestamp", closestEventTimestamp);
+            o.put("closestDeltaMs", closestDeltaMs == Long.MAX_VALUE ? -1 : closestDeltaMs);
+            o.put("pid", pid);
+            o.put("tid", tid);
+            o.put("thread", thread);
+            o.put("source", source);
+            o.put("input", input);
+            o.put("result", result);
+            o.put("exception", exception);
+            o.put("durationNs", durationNs);
+            o.put("stack", stack);
+            o.put("sharedExitFrames", sharedExitFrames);
+            o.put("sameThreadAsExit", sameThreadAsExit);
             JSONArray arr = new JSONArray();
             for (String e : evidence) arr.put(e);
             o.put("evidence", arr);
